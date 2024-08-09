@@ -7,6 +7,7 @@ import sys
 from constants import dataTypes, specialVars,sysCalls
 from keystone import *
 import readline
+import csv
 
 rst="\033[0;0m"
 red = "\033[38;5;9m"
@@ -70,6 +71,7 @@ ks = Ks(KS_ARCH_X86, KS_MODE_32)
 win10Checked = True 
 win11Checked = False
 funcCalls = {}
+syscallsAndApiNum = {}
 class Structs:
     def __init__(self):
         self.Lines = []
@@ -248,7 +250,13 @@ class Reader:
                 ebpVars.append(ebpDict)
                 return(asm)
 
-    def invokeSysCall(self, funcName):
+    def invokeSysCall(self):
+        asm = ""
+        asm += f"  mov eax, ecx ; assume syscall number in ecx\n"
+        asm += f"  call {lb}invokeSysCall{rst}\n"
+        return asm
+
+    def invokeSysCallOld(self, funcName):
         asm = ""
         asm += "  mov edi, esp\n"
         asm += "  sub esp, 0x50\n"
@@ -299,6 +307,15 @@ class Reader:
             sys.exit()
         return asm,numOfPushes
 
+
+
+    def getApiNumFromFile(self, funcName):
+        print("getApiNumFromFile")
+        asm = ""
+        apiNumFromFile = readSysCalls(funcName, False, True)
+        asm += f"  mov edi, {apiNumFromFile}\n"
+        asm += f"  call {lb}GetSysModelNumber{rst}\n"
+        return asm
 
     def funcCallAssm(self, funcName, params, assignedTo):
         asm = ""
@@ -383,9 +400,18 @@ class Reader:
                             asm += "{:60s};{}:{}\n".format(prepAsm,lb+param,o+ebpVal+rst)
                             asm += f"  push ebx\n"
                 break
-        rtnAsm, numOfPushes = self.invokeSysCall((funcName))
-        asm += rtnAsm
+
+        #rtnAsm, numOfPushes = self.invokeSysCall((funcName))
+        #asm += self.GetModelNumber(funcName) 
+        #asm += rtnAsm
         #asm += self.invokeSysCall(funcName)
+        apiNum = readSysCalls(funcName, False, True)
+        if apiNum:
+            syscallsAndApiNum.update({funcName:apiNum})
+        else:
+            print(f"Error: couldn't find api num from syscalls file")
+        asm += self.getApiNumFromFile(funcName)
+        asm += self.invokeSysCall()
         if assignedTo:
             for var in mainVars:
                 if var.Name == assignedTo:
@@ -405,7 +431,7 @@ class Reader:
                         ebpDict = {var.Name:assignedEbp,
                            "value":"EAX",
                            "type":"dword"}
-        asm += f"  add esp, {hex(stackAdjust+(numOfPushes*4))}"
+        #asm += f"  add esp, {hex(stackAdjust+(numOfPushes*4))}"
         #asm += "\n"
         return(asm)
 
@@ -1255,9 +1281,8 @@ class Reader:
         return asm
     
     
-    def sysCallAsm(self):
+    def sysCallAsm_old(self):
         asm = ""
-        asm += f"jmp {lb}Begin{rst}\n"
         asm += f"{lb}invokeSysCall{rst}:\n"
         asm += f"  xor ecx, ecx\n"
         asm += f"  mov cx, word ptr[esi]\n"
@@ -1272,7 +1297,119 @@ class Reader:
         asm += f"  AttackEnd:\n"
         asm += f"  ret\n"
         asm += f"{lb}Begin{rst}:\n"
-        return asm 
+        return asm
+
+    def sysCallAsm(self):
+        asm = ""
+        asm += f"{lb}invokeSysCall{rst}:\n"
+        asm += f"  call {y}dword{rst} ptr fs:[0xc0]\n"
+        asm += f"  ret\n"
+        asm += f"{lb}Begin{rst}:\n"
+        return asm
+
+    def checkSyscallNumAsm(self, modelNum):
+        print("checkSyscallNumAsm", modelNum)
+        asm = ""
+        for api, val in syscallsAndApiNum.items():
+            asm += f"  cmp edi, {val}\n"
+            syscallNum = readSysCalls(api, modelNum, False)
+            print(f"syscall: {syscallNum}")
+            asm += f"  mov ebx, {syscallNum}\n"
+            asm += f"  cmovz ecx, ebx\n"
+        asm += "  ret\n"
+        return asm
+
+    def GetSyscallNumber(self):
+        print("GetSyscallNumber")
+        asm = ""
+        asm += f"jmp {lb}Begin{rst}\n"
+        asm += f"{lb}m_19_all:{rst}\n"
+        asm += self.checkSyscallNumAsm("19041")
+        asm += f"{lb}m_10061:{rst}\n"
+        asm += self.checkSyscallNumAsm("10061")
+        asm += f"{lb}m_10240:{rst}\n"
+        asm += self.checkSyscallNumAsm("10240")
+        asm += f"{lb}m_10586:{rst}\n"
+        asm += self.checkSyscallNumAsm("10586")
+        asm += f"{lb}m_14393:{rst}\n"
+        asm += self.checkSyscallNumAsm("14393")
+        asm += f"{lb}m_15063:{rst}\n"
+        asm += self.checkSyscallNumAsm("15063")
+        asm += f"{lb}m_16299:{rst}\n"
+        asm += self.checkSyscallNumAsm("16299")
+        asm += f"{lb}m_17134:{rst}\n"
+        asm += self.checkSyscallNumAsm("17134")
+        asm += f"{lb}m_17763:{rst}\n"
+        asm += self.checkSyscallNumAsm("17763")
+        asm += f"{lb}m_18362:{rst}\n"
+        asm += self.checkSyscallNumAsm("18362")
+        asm += f"{lb}m_18363:{rst}\n"
+        asm += self.checkSyscallNumAsm("18363")
+        asm += f"{lb}m_20348:{rst}\n"
+        asm += self.checkSyscallNumAsm("20348")
+        asm += f"{lb}m_22000:{rst}\n"
+        asm += self.checkSyscallNumAsm("22000")
+        asm += f"{lb}m_22621:{rst}\n"
+        asm += self.checkSyscallNumAsm("22621")
+        asm += f"{lb}m_22631:{rst}\n"
+        asm += self.checkSyscallNumAsm("22631")
+        asm += f"{lb}m_26120:{rst}\n"
+        asm += self.checkSyscallNumAsm("26120")
+        asm += f"{lb}m_26212:{rst}\n"
+        asm += self.checkSyscallNumAsm("26212")
+        asm += f"{lb}m_26227:{rst}\n"
+        asm += self.checkSyscallNumAsm("26227")
+
+        return asm
+
+
+    def GetModelNumber(self):
+        print("GetModelNumber")
+        asm = ""
+        asm += f"""
+{lb}GetSysModelNumber{rst}:
+  mov edx, fs:[0x30]
+  mov eax, [edx+0xAC]
+  and eax, 0xFFFF
+  cmp ah, 0x4A	; 19041, 19042...
+  je m_19_all
+  cmp eax, 10061
+  je m_10061
+  cmp eax, 10240
+  je m_10240
+  cmp eax, 10586
+  je m_10586
+  cmp eax, 14393
+  je m_14393
+  cmp eax, 15063
+  je m_15063
+  cmp eax, 16299
+  je m_16299
+  cmp eax, 17134
+  je m_17134
+  cmp eax, 17763
+  je m_17763
+  cmp eax, 18362
+  je m_18362
+  cmp eax, 18363
+  je m_18363
+  cmp eax, 20348
+  je m_20348
+  cmp eax, 22000
+  je m_22000
+  cmp eax, 22621
+  je m_22621
+  cmp eax, 22631
+  je m_22631
+  cmp eax, 26120
+  je m_26120
+  cmp eax, 26212
+  je m_26212
+  cmp eax, 26227
+  je m_26227
+  ret
+"""
+        return asm
 
     def stackSpace(self):
         asm = "sub esp, 0x2000\n"
@@ -1390,6 +1527,8 @@ class Reader:
                     assm = self.toAssembly("structMember",rName,rValue,"None",varObj.assignedTo)
                     finalAssm += assm
         self.asmObj.assembly += self.stackSpace()
+        self.asmObj.assembly += self.GetSyscallNumber()
+        self.asmObj.assembly += self.GetModelNumber()
         self.asmObj.assembly += self.sysCallAsm()
         self.asmObj.assembly += finalAssm
         self.asmObj.assembly += self.stackEnd()
@@ -1606,6 +1745,44 @@ def help():
     print(allText)
     print(T)
 
+
+def readSysCalls(syscall_name, model_number=None, find_api_num=None):
+    file_path = "syscallslist.txt"
+    data_dict = {}
+    apis_and_nums = {}
+    mod_19 = [19042, 19043, 19044, 19045]
+    if model_number in mod_19:
+        model_number = 19041
+    with open(file_path, newline='') as csvfile:
+        reader = csv.reader(csvfile, delimiter='\t')
+        header = next(reader)
+        for row in reader:
+            service_name = row[1]
+            service_id = row[0]
+            api_num_dict = {service_name:service_id}
+            apis_and_nums.update(api_num_dict)
+            values = row[2:]  # Values start from index 2 onward
+        
+        # Create a nested dictionary to store values for each service
+            data_dict[service_name] = {}
+        
+        # Populate the nested dictionary with values based on column headers
+            for i, value in enumerate(values):
+                column_number = header[i+2]  # +2 to skip # and ServiceName columns
+                if value.strip():
+                    data_dict[service_name][column_number] = int(value)
+                else:
+                    data_dict[service_name][column_number] = None
+    if not find_api_num:
+        if syscall_name in data_dict and model_number in data_dict[syscall_name]:
+            value = data_dict[syscall_name][model_number]
+            return hex(value)
+            #print(f"Value for '{syscall_name}' at number '{model_number}': {value}")
+        else:
+            return None
+    else:
+        api_num = apis_and_nums[syscall_name]
+        return hex(int(api_num))
 def cli():
     global win10Checked
     global win11Checked
@@ -1712,6 +1889,8 @@ def banner():
 
 def main():
     banner()
+    #print(readSysCalls("NtAllocateVirtualMemory", False, True))
+
     cli()
 
 if __name__ == "__main__":
