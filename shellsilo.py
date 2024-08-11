@@ -90,7 +90,6 @@ class ContextCompleter:
             return None
 
         if len(line) == 1:
-
             options = [cmd for cmd in self.commands if cmd.startswith(text)]
             if state < len(options):
                 return options[state]
@@ -106,9 +105,6 @@ class ContextCompleter:
                 options = [arg for arg in self.command_args[command]]
                 if state < len(options):
                     return options[state]
-
-
-
 
         return None
 
@@ -336,7 +332,6 @@ class Reader:
                 if len(win11List) % 2 == 1:
                     asm += f"  push 0x{win11List[-1]}\n"
                     numOfPushes += 1
-
             asm += "  mov esi, esp\n"
             asm += "  mov esp, edi\n"
             asm += f"  call {lb}invokeSysCall{rst}\n"
@@ -344,7 +339,6 @@ class Reader:
             print(f"{red}Error: could not find api {funcName} in the constants file{rst}")
             sys.exit()
         return asm,numOfPushes
-
 
 
     def getApiNumFromFile(self, funcName):
@@ -466,7 +460,6 @@ class Reader:
                            "value":"EAX",
                            "type":"dword"}
         return(asm)
-
 
     def structPtrAsm(self,ptr):
         currentStack = self.asmObj.stackStart
@@ -657,7 +650,6 @@ class Reader:
                 for i in st.Members:
                     for k in i:
                         size += int(k, 16)
-
         return(hex(size))
 
     def isStruct(self, value):
@@ -810,7 +802,6 @@ class Reader:
     def checkType(self, lineNum, lines, line, varObj):
         line = line.replace(";", "")
         sName = line.split(" ")[0]
-        #varObj = Vars()
         if re.search("while\(.*\)", line):
             if not loopDetected[0]:
                 return True,None,"start","while",None,None
@@ -986,7 +977,6 @@ class Reader:
         tmp += "  push ebx\n"
         return tmp
 
-
     def pushString(self, str2push):
         varStr = str2push.replace('"', '')
         i = len(varStr)
@@ -1050,7 +1040,6 @@ class Reader:
             asmCode2 += "  pop ebx\n"
         return asmCode2
 
-
     def pushAscii(self, asciiArr):
         length = len(asciiArr)
         i = 0
@@ -1073,7 +1062,6 @@ class Reader:
             asm += f"  push 0x{newHex}\n"
         asm += "  mov ebx, esp\n"
         return asm 
-
 
     def initUnicode(self, ptrName, unicode, length, line):
         asm = ""
@@ -1142,8 +1130,6 @@ class Reader:
             print(f"{red}Error: could not parse while loop{rst}")
             print(f"{w}Error line: {line}{rst}")
             sys.exit()
-
-                                                                     
         return asm
 
     def recvBreak(self, op, jmpTo):
@@ -1295,7 +1281,6 @@ class Reader:
                         asm += f"  mov ecx, {hex(v.Length)}\n"
                         asm += "  cld\n"
                         asm += "  repe cmpsb\n"
-
         else:
             print(f"{red}Error: could not evaluate right side of if statement{rst}")
             print(f"{w}Error line: {line}{rst}")
@@ -1381,9 +1366,7 @@ class Reader:
         asm += self.checkSyscallNumAsm("26212")
         asm += f"{lb}m_26227:{rst}\n"
         asm += self.checkSyscallNumAsm("26227")
-
         return asm
-
 
     def GetModelNumber(self):
         print("GetModelNumber")
@@ -1575,7 +1558,6 @@ class Reader:
             print("Error: readMain ->", e)
         if code:
             self.parseMain(code)
-
 
     def hiddenStructFound(self, struct, structObj, structName, structPtr):
         constTypes = {
@@ -1800,7 +1782,6 @@ def readSysCalls(syscall_name, model_number=None, find_api_num=None):
         return hex(int(api_num))
 
 def cli():
-    
     checkMark = u'\u2713'
     crossMark = u'\u2715'
     completer = ContextCompleter()
