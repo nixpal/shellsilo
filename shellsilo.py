@@ -86,23 +86,18 @@ class ContextCompleter:
         line = readline.get_line_buffer().split()
         if line_org[-1] == " ":
             line.append(" ")
-        # print(line)
         if len(line) == 0:
             return None
 
         if len(line) == 1:
-            # print("Line2: ", repr(line))
 
-            # Autocomplete commands
             options = [cmd for cmd in self.commands if cmd.startswith(text)]
             if state < len(options):
                 return options[state]
 
         if len(line) > 1:
-            # print(line[0], line[1])
             command = line[0]
             if command in self.command_args and line[-1] != " ":
-                # `text` is the current input to complete (after the command)
                 current_text = line[-1]  # This should be the part after the command
                 options = [arg for arg in self.command_args[command] if arg.startswith(current_text)]
                 if state < len(options):
@@ -342,12 +337,9 @@ class Reader:
                     asm += f"  push 0x{win11List[-1]}\n"
                     numOfPushes += 1
 
-            #sysCallNum = listOfNames[funcName]
-            #asm += f"  mov eax, {hex(sysCallNum)}\n"
             asm += "  mov esi, esp\n"
             asm += "  mov esp, edi\n"
             asm += f"  call {lb}invokeSysCall{rst}\n"
-            #asm += f"  add esp, {hex(numOfPushes*4)}\n"
         else:
             print(f"{red}Error: could not find api {funcName} in the constants file{rst}")
             sys.exit()
@@ -447,10 +439,6 @@ class Reader:
                             asm += f"  push ebx\n"
                 break
 
-        #rtnAsm, numOfPushes = self.invokeSysCall((funcName))
-        #asm += self.GetModelNumber(funcName) 
-        #asm += rtnAsm
-        #asm += self.invokeSysCall(funcName)
         apiNum = readSysCalls(funcName, False, True)
         if apiNum:
             syscallsAndApiNum.update({funcName:apiNum})
@@ -477,8 +465,6 @@ class Reader:
                         ebpDict = {var.Name:assignedEbp,
                            "value":"EAX",
                            "type":"dword"}
-        #asm += f"  add esp, {hex(stackAdjust+(numOfPushes*4))}"
-        #asm += "\n"
         return(asm)
 
 
@@ -729,16 +715,12 @@ class Reader:
             varValue = self.getVarValue(isVariable)
             varType = self.getValueType(varValue)
             varEbpVal = self.getEbpValue(isVariable)
-            #if varType == "hex":
-                #varValue = int(varValue, 16)
 
 
             prepAsm = f"  mov ebx, dword ptr[{varEbpVal}]"
             asm += "{:47s};{}\n".format(prepAsm, lb+isVariable+rst)
             prepAsm = f"  mov dword ptr[ebp-{memberOffset}], ebx"
             asm += "{:47s};{}<=>{}\n".format(prepAsm, lb+stMember+rst, lb+isVariable+rst)
-            #prepAsm = f"  mov {y+dType+rst} ptr[ebp-{memberOffset}], {hex(int(varValue))}"
-            #asm += "{:60s};{}<=>{}\n".format(prepAsm, lb+stMember+rst, lb+isVariable+rst)
         elif vType == "unicode":
             extractVal = value.split("u:")[1]
             hexVal = self.toHex(extractVal)
@@ -875,7 +857,6 @@ class Reader:
                     varObj.Value = ""
                     varObj.unicode = sName
                     varObj.instance = sValue
-                    #mainVars.append(varObj)
                 return True,sName,sValue,"struct",None,True
 
             elif sName == s.Pointer:
@@ -1026,12 +1007,10 @@ class Reader:
         for word in pushList:
             data = word[::-1]
             wordLen = len(data)
-        # print("Length: ", wordLen)
             if wordLen == 4:
                 wordHex = "".join("{:02x}".format(ord(c)) for c in data)
                 prepAsm = f"  push 0x{wordHex}"
                 asmCode2 += "{:47s};{}\n".format(prepAsm,lb+data+rst)
-          
 
             elif wordLen == 2:
                 wordHex = "".join("{:02x}".format(ord(c)) for c in data)
@@ -1050,7 +1029,6 @@ class Reader:
               
                 randStr2Int = int(randStr, 16)
                 wordHex2Int = int(tmp, 16)
-              # print("Xoring ", randStr2Int, wordHex2Int)
                 Xored = randStr2Int ^ wordHex2Int
                 Xored = hex(Xored).replace("0x", "")
               
@@ -1066,7 +1044,6 @@ class Reader:
                 tmpAsm += '  inc ebx\n'
 
                 asmCode2 += tmpAsm
-          # print("Final code from function", asmCode)
         if Flag:
             prepAsm = "  push esp"
             asmCode2 += "{:47s};{}\n".format(prepAsm,lb + str2push+rst)
@@ -1104,7 +1081,6 @@ class Reader:
             "u":unicode,
             "len":length
         }
-        # Length is the unicode string length
         found = False
         for vr in mainVars:
             if vr.Type == "structInstance":
@@ -1623,7 +1599,6 @@ class Reader:
 
         struct = struct[1:-1]
         types = constTypes
-        #structRev = struct[::-1]
         try:
             for stLine in struct:
                 size = 0
@@ -1706,7 +1681,6 @@ class Reader:
         
     def getStructNameAndPointer(self, chunk):
         line = chunk[-1]
-        #name = re.findall('[a-zA-Z0-9_]+,', line)[0][:-1]
         name = re.findall('[a-zA-Z0-9_]+,', line)
         ptr = re.findall('[a-zA-Z0-9_]+;', line)
         if ptr and not name:
@@ -1808,11 +1782,7 @@ def readSysCalls(syscall_name, model_number=None, find_api_num=None):
             api_num_dict = {service_name:service_id}
             apis_and_nums.update(api_num_dict)
             values = row[2:]  # Values start from index 2 onward
-        
-        # Create a nested dictionary to store values for each service
             data_dict[service_name] = {}
-        
-        # Populate the nested dictionary with values based on column headers
             for i, value in enumerate(values):
                 column_number = header[i+2]  # +2 to skip # and ServiceName columns
                 if value.strip():
@@ -1823,7 +1793,6 @@ def readSysCalls(syscall_name, model_number=None, find_api_num=None):
         if syscall_name in data_dict and model_number in data_dict[syscall_name]:
             value = data_dict[syscall_name][model_number]
             return hex(value)
-            #print(f"Value for '{syscall_name}' at number '{model_number}': {value}")
         else:
             return None
     else:
@@ -1837,17 +1806,6 @@ def cli():
     completer = ContextCompleter()
     readline.set_completer(completer.complete)
     readline.parse_and_bind('bind ^I rl_complete')
-    #     rst="\033[0;0m"
-# red = "\033[38;5;9m"
-# by="\033[38;5;3m"
-# y = "\033[1;33m"
-# b="\033[38;5;27m"
-# p="\033[1;33;35m"
-# c="\033[38;5;6m"
-# w="\033[38;5;7m"
-# o="\033[38;5;202m"
-# lb="\033[38;5;117m"
-# g="\033[38;5;2m"
     while True:
         try:
             c = input(f"{brblk}S{o}I{y}L{o}O{brblk}>{rst} ")
@@ -1933,8 +1891,6 @@ def banner():
 
 def main():
     banner()
-    #print(readSysCalls("NtAllocateVirtualMemory", False, True))
-
     cli()
 
 if __name__ == "__main__":
