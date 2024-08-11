@@ -342,7 +342,6 @@ class Reader:
 
 
     def getApiNumFromFile(self, funcName):
-        print("getApiNumFromFile")
         asm = ""
         apiNumFromFile = readSysCalls(funcName, False, True)
         asm += f"  mov edi, {apiNumFromFile}\n"
@@ -553,7 +552,7 @@ class Reader:
                             asm += "{:60s};{}\n".format(prepAsm, lb+value+rst)
                             self.asmObj.stackStart += int(key, 16)
         except Exception as e:
-            print("genStructAssembly -> ", e)
+            print(e)
         ebpDict[v.Name] = tmpStackPtr 
         ebpVars.append(ebpDict)
         finalAsm += asm
@@ -1315,19 +1314,16 @@ class Reader:
         return asm
 
     def checkSyscallNumAsm(self, modelNum):
-        print("checkSyscallNumAsm", modelNum)
         asm = ""
         for api, val in syscallsAndApiNum.items():
             asm += f"  cmp edi, {val}\n"
             syscallNum = readSysCalls(api, modelNum, False)
-            print(f"syscall: {syscallNum}")
             asm += f"  mov ebx, {syscallNum}\n"
             asm += f"  cmovz ecx, ebx\n"
         asm += "  ret\n"
         return asm
 
     def GetSyscallNumber(self):
-        print("GetSyscallNumber")
         asm = ""
         asm += f"jmp {lb}Begin{rst}\n"
         asm += f"{lb}m_19_all:{rst}\n"
@@ -1369,7 +1365,6 @@ class Reader:
         return asm
 
     def GetModelNumber(self):
-        print("GetModelNumber")
         asm = ""
         asm += f"""
 {lb}GetSysModelNumber{rst}:
