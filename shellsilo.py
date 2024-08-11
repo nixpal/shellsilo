@@ -8,11 +8,11 @@ from constants import dataTypes, specialVars,sysCalls
 from keystone import *
 import readline
 import csv
+import readline
 
 rst="\033[0;0m"
 red = "\033[38;5;9m"
 by="\033[38;5;3m"
-y="\033[38;5;11m"
 y = "\033[1;33m"
 b="\033[38;5;27m"
 p="\033[1;33;35m"
@@ -72,6 +72,52 @@ win10Checked = True
 win11Checked = False
 funcCalls = {}
 syscallsAndApiNum = {}
+
+
+class ContextCompleter:
+    def __init__(self):
+        self.commands = ['print', 'load', 'help', 'exit', 'quit']
+        self.command_args = {
+            'print': ['assembly', 'shellcode'],
+        }
+
+    def complete(self, text, state):
+        line_org = readline.get_line_buffer()
+        line = readline.get_line_buffer().split()
+        if line_org[-1] == " ":
+            line.append(" ")
+        # print(line)
+        if len(line) == 0:
+            return None
+
+        if len(line) == 1:
+            # print("Line2: ", repr(line))
+
+            # Autocomplete commands
+            options = [cmd for cmd in self.commands if cmd.startswith(text)]
+            if state < len(options):
+                return options[state]
+
+        if len(line) > 1:
+            # print(line[0], line[1])
+            command = line[0]
+            if command in self.command_args and line[-1] != " ":
+                # `text` is the current input to complete (after the command)
+                current_text = line[-1]  # This should be the part after the command
+                options = [arg for arg in self.command_args[command] if arg.startswith(current_text)]
+                if state < len(options):
+                    return options[state]
+            elif command in self.command_args and line[-1] == " ":
+                options = [arg for arg in self.command_args[command]]
+                if state < len(options):
+                    return options[state]
+
+
+
+
+        return None
+
+
 class Structs:
     def __init__(self):
         self.Lines = []
@@ -1783,11 +1829,25 @@ def readSysCalls(syscall_name, model_number=None, find_api_num=None):
     else:
         api_num = apis_and_nums[syscall_name]
         return hex(int(api_num))
+
 def cli():
-    global win10Checked
-    global win11Checked
+    
     checkMark = u'\u2713'
     crossMark = u'\u2715'
+    completer = ContextCompleter()
+    readline.set_completer(completer.complete)
+    readline.parse_and_bind('bind ^I rl_complete')
+    #     rst="\033[0;0m"
+# red = "\033[38;5;9m"
+# by="\033[38;5;3m"
+# y = "\033[1;33m"
+# b="\033[38;5;27m"
+# p="\033[1;33;35m"
+# c="\033[38;5;6m"
+# w="\033[38;5;7m"
+# o="\033[38;5;202m"
+# lb="\033[38;5;117m"
+# g="\033[38;5;2m"
     while True:
         try:
             c = input(f"{brblk}S{o}I{y}L{o}O{brblk}>{rst} ")
@@ -1817,23 +1877,6 @@ def cli():
                             print(Reader.asmObj.shellcode)
                         else:
                             print(f"{w}Invalid command{rst}")
-                    elif cmd.lower() == "set":
-                        if cmdLine[1] == "win10":
-                            if not win10Checked:
-                                win10Checked = True
-                                print(f"{w}Windows 10 syscalls [{g}{checkMark}{w}]")
-                            else:
-                                win10Checked = False
-                                print(f"{w}Windows 10 syscalls [{red}{crossMark}{w}]")
-
-                        if cmdLine[1] == "win11":
-                            if not win11Checked:
-                                win11Checked = True
-                                print(f"{w}Windows 11 syscalls [{g}{checkMark}{w}]")
-                            else:
-                                win11Checked = False 
-                                print(f"{w}Windows 11 syscalls [{red}{crossMark}{w}]")
-
                     else:
                         print(f"{w}Invalid command{rst}")
                         continue
@@ -1853,12 +1896,13 @@ def cli():
             break
 
 def banner():
+
     T = f"""
       {brblk}____  _   _ _____ _     _       {brblk}____ ___ _     ___  
-     {y}/ ___|| | | | ____| |   | |     {o}/ ___|_ _| |   / _ \ 
-     {y}\___ \| |_| |  _| | |   | |     {o}\___ \| || |  | | | |
-      {y}___) |  _  | |___| |___| |___   {o}___) | || |__| |_| |
-     {y}|____/|_| |_|_____|_____|_____| {o}|____/___|_____\___/ 
+     {o}/ ___|| | | | ____| |   | |     {o}/ ___|_ _| |   / _ \ 
+     {brblk}\___ \| |_| |  _| | |   | |     {brblk}\___ \| || |  | | | |
+      {y}___) |  _  | |___| |___| |___   {y}___) | || |__| |_| |
+     {o}|____/|_| |_|_____|_____|_____| {o}|____/___|_____\___/ 
                                                           
                          {y}.@@@@@@@.                         
                    .=@@#:::::::::::#@@=                    
