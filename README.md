@@ -11,3 +11,11 @@ ShellSilo supports the following:
 * Function calls
 * Initializing unicode string
 * Some C constants such as MEM_COMMIT and MEM_RESERVE
+
+![Alt text](https://github.com/nixpal/shellsilo/blob/main/images/main.png)
+
+![Alt text](https://github.com/nixpal/shellsilo/blob/main/images/output_sample.png)
+
+![Alt text](https://github.com/nixpal/shellsilo/blob/main/images/help.png)
+
+![Alt text](https://github.com/nixpal/shellsilo/blob/main/images/shellcode.png)
