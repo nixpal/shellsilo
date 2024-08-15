@@ -8,7 +8,6 @@ from constants import dataTypes, specialVars,sysCalls
 from keystone import *
 import readline
 import csv
-import readline
 
 rst="\033[0;0m"
 red = "\033[38;5;9m"
