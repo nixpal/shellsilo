@@ -1,5 +1,3 @@
-#include <Windows.h>
-#include <iostream>
 
 // Define necessary structures and types
 
@@ -93,7 +91,7 @@ typedef struct _CLIENT_ID {
 	}
 	newBaseAddress += nextEntry;
 	imageName = (SYSTEM_PROCESS_INFORMATION)newBaseAddress->ImageName->Buffer;
-    InitUnicodeStr(NtImagePath, "CrypTool.exe");
+    InitUnicodeStr(NtImagePath, "Calculator.exe");
 	if (imageName == NtImagePath)
 	{
 		processId = (SYSTEM_PROCESS_INFORMATION)newBaseAddress->UniqueProcessId;

@@ -29,6 +29,5 @@ typedef struct _CLIENT_ID {
     PVOID address = NULL;
     SIZE_T size = 4096; 
     NtAllocateVirtualMemory(GetCurrentProcess(), &address, 0, &size, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
-	NtWriteVirtualMemoty(
     return 0;
 }

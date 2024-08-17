@@ -1325,10 +1325,16 @@ class Reader:
     def GetSyscallNumber(self):
         asm = ""
         asm += f"jmp {lb}Begin{rst}\n"
-        asm += f"{lb}m_19_all:{rst}\n"
+        asm += f"{lb}m_19041:{rst}\n"
         asm += self.checkSyscallNumAsm("19041")
-        asm += f"{lb}m_10061:{rst}\n"
-        asm += self.checkSyscallNumAsm("10061")
+        asm += f"{lb}m_19042:{rst}\n"
+        asm += self.checkSyscallNumAsm("19042")
+        asm += f"{lb}m_19043:{rst}\n"
+        asm += self.checkSyscallNumAsm("19043")
+        asm += f"{lb}m_19044:{rst}\n"
+        asm += self.checkSyscallNumAsm("19044")
+        asm += f"{lb}m_19045:{rst}\n"
+        asm += self.checkSyscallNumAsm("19045")
         asm += f"{lb}m_10240:{rst}\n"
         asm += self.checkSyscallNumAsm("10240")
         asm += f"{lb}m_10586:{rst}\n"
@@ -1355,12 +1361,8 @@ class Reader:
         asm += self.checkSyscallNumAsm("22621")
         asm += f"{lb}m_22631:{rst}\n"
         asm += self.checkSyscallNumAsm("22631")
-        asm += f"{lb}m_26120:{rst}\n"
-        asm += self.checkSyscallNumAsm("26120")
-        asm += f"{lb}m_26212:{rst}\n"
-        asm += self.checkSyscallNumAsm("26212")
-        asm += f"{lb}m_26227:{rst}\n"
-        asm += self.checkSyscallNumAsm("26227")
+        asm += f"{lb}m_25398:{rst}\n"
+        asm += self.checkSyscallNumAsm("25398")
         return asm
 
     def GetModelNumber(self):
@@ -1370,10 +1372,16 @@ class Reader:
   mov edx, fs:[0x30]
   mov eax, [edx+0xAC]
   and eax, 0xFFFF
-  cmp ah, 0x4A	; 19041, 19042...
-  je m_19_all
-  cmp eax, 10061
-  je m_10061
+  cmp eax, 19041
+  je m_19041
+  cmp eax, 19042
+  je m_19042
+  cmp eax, 19043
+  je m_19043
+  cmp eax, 19044
+  je m_19044
+  cmp eax, 19045
+  je m_19045
   cmp eax, 10240
   je m_10240
   cmp eax, 10586
@@ -1400,12 +1408,8 @@ class Reader:
   je m_22621
   cmp eax, 22631
   je m_22631
-  cmp eax, 26120
-  je m_26120
-  cmp eax, 26212
-  je m_26212
-  cmp eax, 26227
-  je m_26227
+  cmp eax, 25398
+  je m_25398
   ret
 """
         return asm
@@ -1746,9 +1750,6 @@ def readSysCalls(syscall_name, model_number=None, find_api_num=None):
     file_path = "syscallslist.txt"
     data_dict = {}
     apis_and_nums = {}
-    mod_19 = [19042, 19043, 19044, 19045]
-    if model_number in mod_19:
-        model_number = 19041
     with open(file_path, newline='') as csvfile:
         reader = csv.reader(csvfile, delimiter='\t')
         header = next(reader)
@@ -1762,13 +1763,13 @@ def readSysCalls(syscall_name, model_number=None, find_api_num=None):
             for i, value in enumerate(values):
                 column_number = header[i+2]  # +2 to skip # and ServiceName columns
                 if value.strip():
-                    data_dict[service_name][column_number] = int(value)
+                    data_dict[service_name][column_number] = value
                 else:
                     data_dict[service_name][column_number] = None
     if not find_api_num:
         if syscall_name in data_dict and model_number in data_dict[syscall_name]:
             value = data_dict[syscall_name][model_number]
-            return hex(value)
+            return hex(int(value, 16))
         else:
             return None
     else:
