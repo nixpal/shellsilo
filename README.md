@@ -36,3 +36,9 @@ https://github.com/nixpal/ProcInjectSyscall/blob/main/shellcode.c#L222
 ![Alt text](https://github.com/nixpal/shellsilo/blob/main/images/help.png)
 
 ![Alt text](https://github.com/nixpal/shellsilo/blob/main/images/shellcode.png)
+
+
+## Author
+
+**[Tarek Ahmed](https://github.com/nixpal)**
+
