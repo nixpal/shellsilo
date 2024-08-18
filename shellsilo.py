@@ -292,53 +292,6 @@ class Reader:
         asm += f"  call {lb}invokeSysCall{rst}\n"
         return asm
 
-    def invokeSysCallOld(self, funcName):
-        asm = ""
-        asm += "  mov edi, esp\n"
-        asm += "  sub esp, 0x50\n"
-        numOfPushes = 0
-        listOfSysCalls = sysCalls
-        if not win10Checked and not win11Checked:
-            print(f"{red}Error: you need at least one operating system to be checked for syscalls.{rst}")
-            print(f"{w}Currently you have both win10 and win11 unchecked.{rst}")
-            sys.exit()
-        if funcName[-1].isdigit():
-            NewfuncName = funcName[:-1]
-        else:
-            NewfuncName = funcName
-        if NewfuncName in listOfSysCalls:
-            sysCallsNums = listOfSysCalls[funcName]
-            win10List = [x for x in sysCallsNums["10"]]
-            win10List.append("ffff")
-            win10List.reverse()
-            win11List = [x for x in sysCallsNums["11"]]
-            win11List.append("ffff")
-            win11List.reverse()
-            if win10Checked:
-                for i in range(0, len(win10List) - 1, 2):
-                    spair = win10List[i:i+2]
-                    pushPair = ''.join(spair)
-                    asm += f"  push 0x{pushPair}\n"
-                    numOfPushes += 1
-                if len(win10List) % 2 == 1:
-                    asm += f"  push 0x{win10List[-1]}\n"
-                    numOfPushes += 1
-            if win11Checked:
-                for i in range(0, len(win11List) - 1, 2):
-                    spair = win11List[i:i+2]
-                    pushPair = ''.join(spair)
-                    asm += f"  push 0x{pushPair}\n"
-                if len(win11List) % 2 == 1:
-                    asm += f"  push 0x{win11List[-1]}\n"
-                    numOfPushes += 1
-            asm += "  mov esi, esp\n"
-            asm += "  mov esp, edi\n"
-            asm += f"  call {lb}invokeSysCall{rst}\n"
-        else:
-            print(f"{red}Error: could not find api {funcName} in the constants file{rst}")
-            sys.exit()
-        return asm,numOfPushes
-
 
     def getApiNumFromFile(self, funcName):
         asm = ""
@@ -457,6 +410,7 @@ class Reader:
                         ebpDict = {var.Name:assignedEbp,
                            "value":"EAX",
                            "type":"dword"}
+        asm += f"  add esp, {hex(stackAdjust)}\n"
         return(asm)
 
     def structPtrAsm(self,ptr):
@@ -1283,25 +1237,6 @@ class Reader:
             print(f"{red}Error: could not evaluate right side of if statement{rst}")
             print(f"{w}Error line: {line}{rst}")
             sys.exit()
-        return asm
-    
-    
-    def sysCallAsm_old(self):
-        asm = ""
-        asm += f"{lb}invokeSysCall{rst}:\n"
-        asm += f"  xor ecx, ecx\n"
-        asm += f"  mov cx, word ptr[esi]\n"
-        asm += f"  add esi, 2\n"
-        asm += f"  cmp cx, 0xffff\n"
-        asm += f"  je AttackEnd\n"
-        asm += f"  xor eax, eax\n"
-        asm += f"  mov eax, ecx\n"
-        asm += f"  call {y}dword{rst} ptr fs:[0xc0]\n"
-        asm += f"  test eax, eax\n"
-        asm += f"  jne invokeSysCall\n"
-        asm += f"  AttackEnd:\n"
-        asm += f"  ret\n"
-        asm += f"{lb}Begin{rst}:\n"
         return asm
 
     def sysCallAsm(self):
