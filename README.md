@@ -7,6 +7,12 @@ ShellSilo has been tested on two different Windows 10 models, and Windows 11.
 * ShellSilo only compares the syscall APIs used in the code.
 
 
+### Requirements
+* Keystone
+  pip3 install keystone
+  https://pypi.org/project/keystone/
+
+
 ShellSilo supports the following:
 
 * Reading and parsing structures
