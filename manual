@@ -1,11 +1,5 @@
 
-<<<<<<< Updated upstream
-
-
 ===========| IF STATEMENT |===========
-=======
-##### IF STATEMENT #####
->>>>>>> Stashed changes
 
 if (var1 == <var2/string/int/hex>){
 	do something
@@ -13,13 +7,9 @@ if (var1 == <var2/string/int/hex>){
 }
 ;; The if statement right side must be a variable, string, int, or hex.
 
-<<<<<<< Updated upstream
 ++++++++++++++++++++++++++++++++++++++
 
 ===========| Infinite While loop |===========
-=======
-##### Infinite While loop ####
->>>>>>> Stashed changes
 
 while(TRUE){
 	if (<var1> == <var2/string/int/hex>){
@@ -30,16 +20,11 @@ while(TRUE){
 ;; Only infinite while loops work for now
 ;; If statements only work inside infinite loops to allow the user to break upon condition.
 ;; Wait for future updates to accept if statements outside loops.
-<<<<<<< Updated upstream
 ++++++++++++++++++++++++++++++++++++++
 
 
 
 ===========| Define Structs |===========
-=======
-
-##### Define Structs ######
->>>>>>> Stashed changes
 
 typedef struct <structure_name> {
 	struct body;
@@ -64,18 +49,11 @@ typedef struct _OBJECT_ATTRIBUTES {
   PVOID           SecurityQualityOfService;
 } OBJECT_ATTRIBUTES;
 
-<<<<<<< Updated upstream
 ++++++++++++++++++++++++++++++++++++++
 
 
 
 ===========| Main Function |===========
-=======
-##############################################
-
-
-######## Main Function #########
->>>>>>> Stashed changes
 
 <MAIN>
 {
@@ -86,16 +64,11 @@ typedef struct _OBJECT_ATTRIBUTES {
 }
 
 ;; The main function starts with <MAIN>, unlike C language int main()
-<<<<<<< Updated upstream
 ++++++++++++++++++++++++++++++++++++++
 
 
 ===========| Variables definition |===========
 
-=======
-
-###### Variables definition ########
->>>>>>> Stashed changes
 <type> <variable_name> = <var,NULL,int,string,constant>;
 Example 1:
 	PVOID remoteAddress = NULL;
@@ -109,60 +82,41 @@ Example 3:
 
 ;; The variable type has to match one of the types in the constants.py file.
 ;; A new type could be added to the file as you go. Make sure you add the correct size of that type.
-<<<<<<< Updated upstream
 ++++++++++++++++++++++++++++++++++++++
 
 
 ===========| Variable assignment |===========
 
-=======
-
-
-##### Variable assignment #######
->>>>>>> Stashed changes
 Example 1:
 	BaseAddress = 0;
 	BaseAddress += 1;
 	BaseAddress -= 1;
 	RegionSize = dwRet;
 	mystring = "Hello world";
-<<<<<<< Updated upstream
 ++++++++++++++++++++++++++++++++++++++
 
 
 ===========| Structure instance |===========
-=======
 
-
-####### Structure instance #######
->>>>>>> Stashed changes
 Example 1:
 	UNICODE_STRING NtImagePath;
 Example 2:
 	CLIENT_ID clientId = NULL;
-<<<<<<< Updated upstream
 ++++++++++++++++++++++++++++++++++++++
 
 
 ===========| Struct member assignment |===========
-=======
 
 
-####### Struct member assignment #######
->>>>>>> Stashed changes
 Example 1:
 	clientId.UniqueThread = NULL;
 Example 2:
 	ObjectAttributes.Length = 23;
 	ObjectAttributes.Length = sizeof(OBJECT_ATTRIBUTES);
-<<<<<<< Updated upstream
 ++++++++++++++++++++++++++++++++++++++
 
 ===========| Function call |===========
-=======
 
-###### Function call #######
->>>>>>> Stashed changes
 <function_name>(param1, param2, param3);
 <function_name(param1,
 				param2,
@@ -178,16 +132,11 @@ NtAllocateVirtualMemory(hProcess,
 						MEM_COMMIT | MEM_RESERVE,
 						PAGE_EXECUTE_READWRITE
 						)
-<<<<<<< Updated upstream
 ++++++++++++++++++++++++++++++++++++++
 
 
 ===========| Returned structure from a function call |===========
-=======
 
-
-######## Returned structure from a function call ###########
->>>>>>> Stashed changes
 
 ;; Same as a normal structure, but with the word "hidden" added before.
 
@@ -198,14 +147,9 @@ hidden struct _SYSTEM_PROCESS_INFORMATION {
 	line 3;
 	} SYSTEM_PROCESS_INFORMATION;
 
-<<<<<<< Updated upstream
-++++++++++++++++++++++++++++++++++++++
 
 ===========| Getting value from a returned structure |===========
 
-=======
-####### Getting value from a returned structure #######
->>>>>>> Stashed changes
 <var> = (<structure_name>)<returned pointer>->struct_member1->nested_member;
 
 Example 1:
@@ -216,21 +160,15 @@ imageName = (SYSTEM_PROCESS_INFORMATION)newBaseAddress->ImageName->Buffer;
 ;; (SYSTEM_PROCESS_INFORMATION) is the structure defined earlier
 ;; "newBaseAddress" holds the address returned of the returned structure, mostly coming after a function call.
 
-<<<<<<< Updated upstream
 ++++++++++++++++++++++++++++++++++++++
 
 
 ===========| Initializing a unicode string |===========
 
-=======
-
-####### Initializing a unicode string ########
->>>>>>> Stashed changes
 InitUnicodeStr(<variable_to_assign>, "<string>")
 
 Example 1:
 InitUnicodeStr(processName, "Chrome.exe");
-<<<<<<< Updated upstream
 Example 2:
 InitUnicodeStr(processName, "C:\\Windows\System32\calc.exe");
 
@@ -238,17 +176,14 @@ InitUnicodeStr(processName, "C:\\Windows\System32\calc.exe");
 
 ===========| Assigning string variable |===========
 
-=======
 
 
 ##### Assigning string variable #######
->>>>>>> Stashed changes
 PVOID <var_name> = "<string>";
 
 Example 1:
 PVOID buffer = "Hello world!";
 
-<<<<<<< Updated upstream
 ++++++++++++++++++++++++++++++++++++++
 
 
@@ -256,14 +191,6 @@ PVOID buffer = "Hello world!";
 ===========| Special constants and functions |===========
 
 <<< Functions >>>
-
-=======
-
-
-
-######## Special constants and functions ########
-##Functions##
->>>>>>> Stashed changes
 sizeof();
 ;; The sizeof gets the size of a string from a variable, or direct string, or structure.
 Example 1:
@@ -272,12 +199,8 @@ Example 2:
 PVOID buffer = "hello world";
 ULONG NumberOfBytesToWrite = sizeof(buffer);
 
-<<<<<<< Updated upstream
 <<< Constants >>>
 
-=======
-##Constants##
->>>>>>> Stashed changes
 - MEM_COMMIT
 - MEM_RESERVE
 - MEM_RELEASE
@@ -291,8 +214,4 @@ ULONG NumberOfBytesToWrite = sizeof(buffer);
 - NTSTATUS
 - NULL
 
-<<<<<<< Updated upstream
 ++++++++++++++++++++++++++++++++++++++
-
-=======
->>>>>>> Stashed changes

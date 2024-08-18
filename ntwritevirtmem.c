@@ -34,9 +34,9 @@ typedef struct _CLIENT_ID {
     CLIENT_ID clientId = NULL;
 
 	OBJECT_ATTRIBUTES ObjectAttributes = { 0 };
-    clientId.UniqueProcess = targetProcessId;
     clientId.UniqueThread = NULL;
-
+    ObjectAttributes.Length = sizeof(OBJECT_ATTRIBUTES);
+    clientId.UniqueProcess = targetProcessId;
     HANDLE hProcess = NULL;
     NtOpenProcess(&hProcess, PROCESS_ALL_ACCESS, &ObjectAttributes, &clientId);
 	PVOID remoteBuffer = NULL;
@@ -46,5 +46,5 @@ typedef struct _CLIENT_ID {
 	ULONG numOfBytesWritten = 0;
 	
     NtAllocateVirtualMemory(hProcess, &remoteBuffer, 0, &bufferSize, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
-	NtWriteVirtualMemory(hProcess, remoteBuffer, dataToWrite, 13, &numOfBytesWritten);
+	NtWriteVirtualMemory(hProcess, remoteBuffer, mystr, 13, &numOfBytesWritten);
 }

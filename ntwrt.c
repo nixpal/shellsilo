@@ -91,7 +91,7 @@ typedef struct _CLIENT_ID {
 	}
 	newBaseAddress += nextEntry;
 	imageName = (SYSTEM_PROCESS_INFORMATION)newBaseAddress->ImageName->Buffer;
-    InitUnicodeStr(NtImagePath, "Calculator.exe");
+    InitUnicodeStr(NtImagePath, "CalculatorApp.exe");
 	if (imageName == NtImagePath)
 	{
 		processId = (SYSTEM_PROCESS_INFORMATION)newBaseAddress->UniqueProcessId;
@@ -99,7 +99,6 @@ typedef struct _CLIENT_ID {
 	}
 	}
 	HANDLE hProcess = NULL;
-	OBJECT_ATTRIBUTES ObjectAttributes = { 0 };
 	CLIENT_ID ClientId;
 	ClientId.UniqueProcess = processId;
 	NtOpenProcess(&hProcess, PROCESS_ALL_ACCESS, &ObjectAttributes, &ClientId);
