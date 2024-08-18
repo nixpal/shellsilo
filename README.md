@@ -2,7 +2,7 @@ ShellSilo is a state-of-the-art tool translates C syntax into syscall assembly a
 
 ShellSilo has been tested on two different Windows 10 models, and Windows 11.
 
-### How does ShellSilo obtains syscall number ?
+### How does ShellSilo obtain syscall number ?
 * ShellSilo imported the syscall number table from https://j00ru.vexillium.org/syscalls/nt/64/ and converted each Windows version to its corresponding model number. By examining the PEB (Process Environment Block), ShellSilo can easily obtain the model number of the system and compare it to its own model from the 'syscallslist.txt' table.
 * ShellSilo only compares the syscall APIs used in the code.
 
