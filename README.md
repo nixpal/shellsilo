@@ -1,4 +1,4 @@
-ShellSilo is a state-of-the-art tool translates C syntax into syscall assembly and its corresponding shellcode. It streamlines the process of constructing and utilizing structures, assigning variables, and making system calls. With this tool, integrating strings into your shellcode and initializing Unicode strings has never been easier.
+ShellSilo is a state-of-the-art tool that translates C syntax into syscall assembly and its corresponding shellcode. It streamlines the process of constructing and utilizing structures, assigning variables, and making system calls. With this tool, integrating strings into your shellcode and initializing Unicode strings has never been easier.
 
 ShellSilo has been tested on two different Windows 10 models, and Windows 11.
 
