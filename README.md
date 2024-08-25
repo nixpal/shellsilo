@@ -8,11 +8,11 @@
 
 SHELLSILO is a state-of-the-art tool that translates C syntax into syscall assembly and its corresponding shellcode. It streamlines the process of constructing and utilizing structures, assigning variables, and making system calls. With this tool, integrating strings into your shellcode and initializing Unicode strings has never been easier.
 
-ShellSilo has been tested on two different Windows 10 models, and Windows 11.
+SHELLSILO has been tested on two different Windows 10 models, and Windows 11.
 
-### How does ShellSilo obtain syscall number ?
-* ShellSilo imported the syscall number table from https://j00ru.vexillium.org/syscalls/nt/64/ and converted each Windows version to its corresponding model number. By examining the PEB (Process Environment Block), ShellSilo can easily obtain the model number of the system and compare it to its own model from the 'syscallslist.txt' table.
-* ShellSilo only compares the syscall APIs used in the code.
+### How does SHELLSILO obtain syscall number ?
+* SHELLSILO imported the syscall number table from https://j00ru.vexillium.org/syscalls/nt/64/ and converted each Windows version to its corresponding model number. By examining the PEB (Process Environment Block), SHELLSILO can easily obtain the model number of the system and compare it to its own model from the 'syscallslist.txt' table.
+* SHELLSILO only compares the syscall APIs used in the code.
 
 
 ### Requirements
@@ -21,7 +21,7 @@ ShellSilo has been tested on two different Windows 10 models, and Windows 11.
 * https://pypi.org/project/keystone/
 
 
-ShellSilo supports the following:
+SHELLSILO supports the following:
 
 * Reading and parsing structures
 * Structres instances
