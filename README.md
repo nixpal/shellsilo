@@ -6,7 +6,7 @@
   <img src="https://img.shields.io/badge/ShellSilo-Shellcode%20%26%20Syscall%20Interpreter%20for%20Low--Level%20Operations-blue?style=for-the-badge" alt="Static Badge"/>
 </h1>
 
-SHELLSILO is a state-of-the-art tool that translates C syntax into syscall assembly and its corresponding shellcode. It streamlines the process of constructing and utilizing structures, assigning variables, and making system calls. With this tool, integrating strings into your shellcode and initializing Unicode strings has never been easier.
+SHELLSILO is a cutting-edge tool that translates C syntax into syscall assembly and its corresponding shellcode. It streamlines the process of constructing and utilizing structures, assigning variables, and making system calls. With this tool, integrating strings into your shellcode and initializing Unicode strings has never been easier.
 
 SHELLSILO has been tested on two different Windows 10 models, and Windows 11.
 
