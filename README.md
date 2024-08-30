@@ -17,10 +17,10 @@ SHELLSILO has been tested on two different Windows 10 models, and Windows 11.
 
 ### Requirements
 * Keystone
-* https://pypi.org/project/keystone/
+* https://www.keystone-engine.org/download/
 
 ### Installation
-* pip3 install keystone
+* pip3 install keystone-engine
 
 
 
