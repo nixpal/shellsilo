@@ -1006,13 +1006,16 @@ class Reader:
                 newData.append(f"{tmp}")
             i+=4
         newData.reverse()
+        numberOfPushes = 0
         for group in newData:
+            numberOfPushes += 1
             newHex = ""
             for byte in reversed(bytes.fromhex(group)):
                 b = format(byte, '02x')
                 newHex += b
             asm += f"  push 0x{newHex}\n"
         asm += "  mov ebx, esp\n"
+        asm += f"  add esp, {hex(numberOfPushes*4)}\n"
         return asm 
 
     def initUnicode(self, ptrName, unicode, length, line):
