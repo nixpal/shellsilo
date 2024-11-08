@@ -8,6 +8,7 @@ from constants import dataTypes, specialVars,sysCalls
 from keystone import *
 import readline
 import csv
+import platform
 
 rst="\033[0;0m"
 red = "\033[38;5;9m"
@@ -1719,7 +1720,12 @@ def cli():
     crossMark = u'\u2715'
     completer = ContextCompleter()
     readline.set_completer(completer.complete)
-    readline.parse_and_bind('bind ^I rl_complete')
+    system_name = platform.system()
+    if system_name == "Darwin":
+        readline.parse_and_bind('bind ^I rl_complete')
+    elif system_name == "Linux":
+        readline.parse_and_bind('tab: complete')
+    
     while True:
         try:
             c = input(f"{brblk}S{o}I{y}L{o}O{brblk}>{rst} ")
