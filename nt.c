@@ -24,7 +24,7 @@ typedef struct _CLIENT_ID {
 
 <MAIN> 
 {
-
+	HANDLE test;
     HANDLE processHandle = GetCurrentProcess();
 	PVOID remoteAddress = NULL;
 	OBJECT_ATTRIBUTES ObjectAttributes = { 0 };

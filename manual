@@ -1,217 +1,200 @@
+🐚 ShellSilo Manual
 
-===========| IF STATEMENT |===========
+A guide to ShellSilo's custom C-like syntax for generating syscall shellcode.
 
-if (var1 == <var2/string/int/hex>){
-	do something
-	break;
+📌 Table of Contents
+
+🔁 Control Flow
+
+If Statement
+
+While Loop
+
+🏗 Struct Definitions
+
+🔧 Main Function
+
+🔣 Variable Definitions
+
+📝 Variable Assignment
+
+📦 Structure Instances
+
+🧱 Struct Member Assignment
+
+📞 Function Calls
+
+📥 Returned Structures
+
+🔍 Accessing Returned Values
+
+🔠 Unicode String Initialization
+
+🧵 String Variable Assignment
+
+🔐 Special Constants and Functions
+
+🔁 Control Flow
+
+✅ If Statement
+
+if (var1 == <var2/string/int/hex>) {
+    do something
+    break;
 }
-;; The if statement right side must be a variable, string, int, or hex.
 
-++++++++++++++++++++++++++++++++++++++
+The right-hand side of the condition must be a variable, string, integer, or hex value.
 
-===========| Infinite While loop |===========
+♾ While Loop
 
-while(TRUE){
-	if (<var1> == <var2/string/int/hex>){
-		do something
-		break;
-	}
+while(TRUE) {
+    if (var1 == <var2/string/int/hex>) {
+        do something
+        break;
+    }
 }
-;; Only infinite while loops work for now
-;; If statements only work inside infinite loops to allow the user to break upon condition.
-;; Wait for future updates to accept if statements outside loops.
-++++++++++++++++++++++++++++++++++++++
 
+Only infinite while(TRUE) loops are currently supported.
 
+if conditions are only valid inside while(TRUE) loops.
 
-===========| Define Structs |===========
+🏗 Struct Definitions
 
 typedef struct <structure_name> {
-	struct body;
-	struct body;
-	struct body;
-}<struct alias>, *<optional_pointer>;
+    type member1;
+    type member2;
+    ...
+} <struct_alias>, *<optional_pointer>;
 
-Example 1: 
-	typedef struct _UNICODE_STRING {
+Example 1:
+
+typedef struct _UNICODE_STRING {
     USHORT Length;
     USHORT MaximumLength;
     PWSTR  Buffer;
 } UNICODE_STRING, *PUNICODE_STRING;
 
 Example 2:
+
 typedef struct _OBJECT_ATTRIBUTES {
-  ULONG           Length;
-  HANDLE          RootDirectory;
-  PUNICODE_STRING ObjectName;
-  ULONG           Attributes;
-  PVOID           SecurityDescriptor;
-  PVOID           SecurityQualityOfService;
+    ULONG Length;
+    HANDLE RootDirectory;
+    PUNICODE_STRING ObjectName;
+    ULONG Attributes;
+    PVOID SecurityDescriptor;
+    PVOID SecurityQualityOfService;
 } OBJECT_ATTRIBUTES;
 
-++++++++++++++++++++++++++++++++++++++
+🔧 Main Function
 
-
-
-===========| Main Function |===========
-
-<MAIN>
-{
-	line 1;
-	line 2;
-	line 3;
-	line 4;
+<MAIN> {
+    line 1;
+    line 2;
+    ...
 }
 
-;; The main function starts with <MAIN>, unlike C language int main()
-++++++++++++++++++++++++++++++++++++++
+Use <MAIN> instead of int main()
 
+🔣 Variable Definitions
 
-===========| Variables definition |===========
+<type> <variable_name> = <var | NULL | int | string | constant>;
 
-<type> <variable_name> = <var,NULL,int,string,constant>;
-Example 1:
-	PVOID remoteAddress = NULL;
-	HANDLE hProcess = NULL;
-Example 2:
-	DWORD DesiredAccess = PROCESS_ALL_ACCESS;
+Example:
 
-Example 3:
-	DWORD ProcInfo = 0x5;
-	DWORD ProcInfo2 = 2;
+PVOID remoteAddress = NULL;
+DWORD DesiredAccess = PROCESS_ALL_ACCESS;
+DWORD ProcInfo = 0x5;
 
-;; The variable type has to match one of the types in the constants.py file.
-;; A new type could be added to the file as you go. Make sure you add the correct size of that type.
-++++++++++++++++++++++++++++++++++++++
+📝 Variable Assignment
 
+BaseAddress = 0;
+BaseAddress += 1;
+BaseAddress -= 1;
+mystring = "Hello world";
 
-===========| Variable assignment |===========
+📦 Structure Instances
 
-Example 1:
-	BaseAddress = 0;
-	BaseAddress += 1;
-	BaseAddress -= 1;
-	RegionSize = dwRet;
-	mystring = "Hello world";
-++++++++++++++++++++++++++++++++++++++
+UNICODE_STRING NtImagePath;
+CLIENT_ID clientId = NULL;
 
+🧱 Struct Member Assignment
 
-===========| Structure instance |===========
+clientId.UniqueThread = NULL;
+ObjectAttributes.Length = sizeof(OBJECT_ATTRIBUTES);
 
-Example 1:
-	UNICODE_STRING NtImagePath;
-Example 2:
-	CLIENT_ID clientId = NULL;
-++++++++++++++++++++++++++++++++++++++
+📞 Function Calls
 
+FunctionName(param1, param2, param3);
+FunctionName(
+    param1,
+    param2,
+    param3
+);
 
-===========| Struct member assignment |===========
+Example:
 
+NtAllocateVirtualMemory(hProcess, &BaseAddress, ZeroBits, &RegionSize,
+    MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
 
-Example 1:
-	clientId.UniqueThread = NULL;
-Example 2:
-	ObjectAttributes.Length = 23;
-	ObjectAttributes.Length = sizeof(OBJECT_ATTRIBUTES);
-++++++++++++++++++++++++++++++++++++++
+📥 Returned Structures
 
-===========| Function call |===========
-
-<function_name>(param1, param2, param3);
-<function_name(param1,
-				param2,
-				param3);
-Example 1:
-NtAllocateVirtualMemory(hProcess, &BaseAddress, ZeroBits, &RegionSize, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
-
-Example 2:
-NtAllocateVirtualMemory(hProcess,
-						&BaseAddress,
-						ZeroBits,
-						&RegionSize,
-						MEM_COMMIT | MEM_RESERVE,
-						PAGE_EXECUTE_READWRITE
-						)
-++++++++++++++++++++++++++++++++++++++
-
-
-===========| Returned structure from a function call |===========
-
-
-;; Same as a normal structure, but with the word "hidden" added before.
-
-Example 1;
 hidden struct _SYSTEM_PROCESS_INFORMATION {
-	line 1;
-	line 2;
-	line 3;
-	} SYSTEM_PROCESS_INFORMATION;
+    type member1;
+    type member2;
+};
 
+Use hidden struct for returned structures from syscall functions.
 
-===========| Getting value from a returned structure |===========
+🔍 Accessing Returned Values
 
-<var> = (<structure_name>)<returned pointer>->struct_member1->nested_member;
+var = (STRUCT_NAME)returned_ptr->Member->NestedMember;
 
-Example 1:
+Example:
+
 imageName = (SYSTEM_PROCESS_INFORMATION)newBaseAddress->ImageName->Buffer;
 
-;; In the above example, "ImageName" is the variable that will store the value coming from the returned structure
-;; "Buffer" is a nested member inside "ImageName" 
-;; (SYSTEM_PROCESS_INFORMATION) is the structure defined earlier
-;; "newBaseAddress" holds the address returned of the returned structure, mostly coming after a function call.
+🔠 Unicode String Initialization
 
-++++++++++++++++++++++++++++++++++++++
+InitUnicodeStr(<variable>, "string");
 
+Example:
 
-===========| Initializing a unicode string |===========
+InitUnicodeStr(processName, "C:\\Windows\\System32\\calc.exe");
 
-InitUnicodeStr(<variable_to_assign>, "<string>")
+🧵 String Variable Assignment
 
-Example 1:
-InitUnicodeStr(processName, "Chrome.exe");
-Example 2:
-InitUnicodeStr(processName, "C:\\Windows\System32\calc.exe");
+PVOID var = "Hello world!";
 
-++++++++++++++++++++++++++++++++++++++
+🔐 Special Constants and Functions
 
-===========| Assigning string variable |===========
+✅ Functions
 
+sizeof(...);
 
+Get size of a structure or string.
 
-##### Assigning string variable #######
-PVOID <var_name> = "<string>";
+🏷 Constants
 
-Example 1:
-PVOID buffer = "Hello world!";
+MEM_COMMIT
 
-++++++++++++++++++++++++++++++++++++++
+MEM_RESERVE
 
+MEM_RELEASE
 
+PAGE_EXECUTE_READWRITE
 
-===========| Special constants and functions |===========
+PAGE_READWRITE
 
-<<< Functions >>>
-sizeof();
-;; The sizeof gets the size of a string from a variable, or direct string, or structure.
-Example 1:
-ObjectAttributes.Length = sizeof(OBJECT_ATTRIBUTES);
-Example 2:
-PVOID buffer = "hello world";
-ULONG NumberOfBytesToWrite = sizeof(buffer);
+PAGE_READONLY
 
-<<< Constants >>>
+PROCESS_ALL_ACCESS
 
-- MEM_COMMIT
-- MEM_RESERVE
-- MEM_RELEASE
-- PAGE_EXECUTE_READWRITE
-- PAGE_READWRITE
-- PAGE_READONLY
-- PROCESS_ALL_ACCESS
-- THREAD_ALL_ACCESS
-- False
-- True
-- NTSTATUS
-- NULL
+THREAD_ALL_ACCESS
 
-++++++++++++++++++++++++++++++++++++++
+False, True
+
+NTSTATUS
+
+NULL
+
+🛠️ ShellSilo is evolving — future versions will expand support for more control flow constructs and struct/array operations.

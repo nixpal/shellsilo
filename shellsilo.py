@@ -4,11 +4,23 @@ import string
 import random
 import json
 import sys
-from constants import dataTypes, specialVars,sysCalls
+from constants import dataTypes, dataTypes_x86, specialVars, type_map
 from keystone import *
 import readline
 import csv
 import platform
+from rich.console import Console
+from rich.table import Table
+from rich.panel import Panel
+from rich import box
+from rich.progress import Progress, BarColumn, TimeRemainingColumn
+from rich.panel import Panel
+import time
+import threading
+import subprocess
+import os
+
+console = Console()
 
 rst="\033[0;0m"
 red = "\033[38;5;9m"
@@ -21,6 +33,8 @@ w="\033[38;5;7m"
 o="\033[38;5;202m"
 lb="\033[38;5;117m"
 g="\033[38;5;2m"
+checkMark = u'\u2705'
+crossMark = u'\u2715'
 
 pure_red = "\033[0;31m"
 dgr = "\033[0;32m"
@@ -67,27 +81,104 @@ loopDetected = [False]
 breakDetected = [False]
 ifDetected = [False]
 breakData = [None]
-ks = Ks(KS_ARCH_X86, KS_MODE_32)
 win10Checked = True 
 win11Checked = False
+x64 = False
+nasm = True 
+masm = False
+dataSection = False
+generateBinaryFile = False
 funcCalls = {}
 syscallsAndApiNum = {}
+assemblyAndComments = []
 
+def run_with_progress(operationType=None, taskArg=None):
+    result = []
+    exception = []
+    try:
+        with Progress(
+            "[progress.description]{task.description}",
+            BarColumn(),
+            "[progress.percentage]{task.percentage:>3.0f}%",
+            TimeRemainingColumn()
+        ) as progress: 
+            task = progress.add_task("Processing", total=100)
+            def readFileWithProgress():
+                try:
+                    res = taskArg.readFile() 
+                    if res:
+                        result.append("Operation successful")
+                    else:
+                        exception.append("Operation failed")
+                except Exception as e:
+                    exception.append(e)
+                    raise
+            def run_command(command):
+                try:
+                    cmdResult = subprocess.run(
+                    command,
+                    check=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True
+                )
+                    result.append("Operation successful")
+                    #if cmdResult.stdout:
+                        #print("Output:", cmdResult.stdout)
+                except subprocess.CalledProcessError as e:
+                    print(f"failed!")
+                    print("Error:", e.stderr)
+                    exception.append("Operation failed")
+                    raise
+
+            if operationType and operationType == "readfile":
+                thread = threading.Thread(target=readFileWithProgress)
+                thread.start()
+            elif operationType and operationType == "run":
+                thread = threading.Thread(target=run_command(taskArg))
+                thread.start()
+            
+            while thread.is_alive():
+                progress.update(task, advance=1)
+                time.sleep(0.05)
+                
+                if progress.tasks[0].percentage > 95:
+                    progress.update(task, advance=0.1)
+            
+            thread.join()
+            progress.update(task, completed=100)  # Force 100% at end
+        
+        # Result display
+        if exception:
+            console.print(f"[red]✗ Error: {exception[0]}[/red]")
+            return False
+        else:
+            console.print(f"[green]✓ {result[0]}[/green]")
+            return True
+    except Exception as e:
+        raise
 
 class ContextCompleter:
     def __init__(self):
-        self.commands = ['print', 'load', 'help', 'exit', 'quit']
+        self.commands = ['generate', 'load', 'help', 'exit', 'quit', 'set', 'enable']
         self.command_args = {
-            'print': ['assembly', 'shellcode'],
-        }
-
+            'generate': ['assembly', 'shellcode', 'binary'],
+            'enable':['data'],
+            'set':['arch', 'assembler'],
+            'arch':['x64', 'x86'],
+            'assembler':['nasm', 'masm']
+        }   
+    
     def complete(self, text, state):
         line_org = readline.get_line_buffer()
-        line = readline.get_line_buffer().split()
-        if line_org[-1] == " ":
-            line.append(" ")
+        tokens = re.split(r'(\s+)', line_org)
+        line = [token for token in tokens if token]
+        #line = readline.get_line_buffer().split()
+        #print("Length: ", len(line), line, "text: ", text)
         if len(line) == 0:
-            return None
+            possible_commands = [cmd for cmd in self.commands if cmd.startswith(text)]
+            if state < len(possible_commands):
+                return possible_commands[state]
 
         if len(line) == 1:
             options = [cmd for cmd in self.commands if cmd.startswith(text)]
@@ -95,19 +186,25 @@ class ContextCompleter:
                 return options[state]
 
         if len(line) > 1:
-            command = line[0]
-            if command in self.command_args and line[-1] != " ":
-                current_text = line[-1]  # This should be the part after the command
-                options = [arg for arg in self.command_args[command] if arg.startswith(current_text)]
+            if line[-1] == " ":
+                command = line[-2] 
+                options = [arg for arg in self.command_args[command] if arg.startswith(text)]
                 if state < len(options):
                     return options[state]
-            elif command in self.command_args and line[-1] == " ":
-                options = [arg for arg in self.command_args[command]]
-                if state < len(options):
-                    return options[state]
+            else:
+                command = line[-1]
+                if command in self.command_args:
+                    options = [arg for arg in self.command_args[command] if arg.startswith(text)]
+                    if state < len(options):
+                        return options[state]
+                else:
+                    line = line[:-2]
+                    command = line[-1]
+                    options = [arg for arg in self.command_args[command] if arg.startswith(text)]
+                    if state < len(options):
+                        return options[state]
 
         return None
-
 
 class Structs:
     def __init__(self):
@@ -135,12 +232,35 @@ class Asm:
         self.stackStart = 0x4 
         self.stackSize = 0x2000
         self.assembly = ""
+        self.masm = ""
+        self.nasm = ""
+        self.dotData = ""
         self.shellcode = ""
+        self.registers = {
+                "RAX":None,
+                "RBX":None,
+                "RCX":None,
+                "RDX":None,
+                "RSI":None,
+                "RDI":None,
+                "RBP":None,
+                "RSP":None,
+                "R8":None,
+                "R9":None,
+                "R10":None,
+                "R11":None,
+                "R12":None,
+                "R13":None,
+                "R14":None,
+                "R15":None
+                }
 
 class whileLoop:
     def __init__(self):
         self.loopStart = None 
         self.loopEnd = None 
+
+        
 class Reader:
     def __init__(self, file):
         self.file = file 
@@ -150,19 +270,56 @@ class Reader:
         unicodeVal = structVal["u"]
         return self.pushAscii(unicodeVal)
 
-    def Asm2Opcode(self, assembly):
+    def assemblerDataSection(self):
+        asm = "global _start\n"
+        asm += "section .text\n"
+        asm += "_start:\n"
+        if nasm:
+            ds = "section .data\n"
+        elif masm:
+            ds = ".data\n"
+        ds += self.asmObj.dotData
+        ds += asm
+        return ds
+
+    def testShellcode(self, assembly):
+        assembly_lines = assembly.strip().split('\n')
+        for i, line in enumerate(assembly_lines):
+            try:
+                if x64:
+                    ks = Ks(KS_ARCH_X86, KS_MODE_64)
+                else:
+                    ks = Ks(KS_ARCH_X86, KS_MODE_32)
+                encoding, count = ks.asm(line)
+                if not encoding:
+                    print(f"Didn't like this instruction: {y}{line}{rst}")
+            except Exception as e:
+                print(f"Error on line {i + 1}: {line}")
+                print(f"Error message: {e}")
+
+
+    def asm2Shellcode(self, assembly):
+        #self.testShellcode(assembly)
         allText = ""
         allText += f"\t\t  {y}**********************\n"
         allText += f"\t\t  *****{o} Shellcode{y} ******\n"
         allText += f"\t\t  {y}**********************{rst}\n\n"
+        if x64:
+            ks = Ks(KS_ARCH_X86, KS_MODE_64)
+        else:
+            ks = Ks(KS_ARCH_X86, KS_MODE_32)
         try:
-            encoding, _ = ks.asm(assembly)
-            opcode_hex = "".join(f"\\x{byte:02x}" for byte in encoding)
-            bytes_per_line = 16 
-            allText += '\n'.join(opcode_hex[i:i + bytes_per_line * 4] for i in range(0, len(opcode_hex), bytes_per_line * 4))
-            allText += '\n'
+            if not dataSection:
+                encoding, _ = ks.asm(assembly)
+                opcode_hex = "".join(f"\\x{byte:02x}" for byte in encoding)
+                bytes_per_line = 16 
+                allText += '\n'.join(opcode_hex[i:i + bytes_per_line * 4] for i in range(0, len(opcode_hex), bytes_per_line * 4))
+                allText += '\n'
         except KsError as e:
-            print(f"Assembly failed: {e}")
+            print(f"[!] Shellcode generation failed")
+        except Exception as e:
+            print(f"[!] Shellcode generation failed")
+
         return allText
 
     def findEbpVar(self, value):
@@ -170,7 +327,6 @@ class Reader:
             if value in ebp:
                 return ebp 
         return False
-
 
     def sizeOf(self, data):
         found = re.search(r'sizeof\(("?[^"]+"?)\)', data)
@@ -188,6 +344,13 @@ class Reader:
             elif foundVal == "variable" and (extracted != "int" or extracted != "char"):
                 varVal = self.getVarValue(extracted)
                 if varVal:
+                    if "\\x" in varVal:
+                        try:
+                            varVal = varVal.replace("\\x", "").replace('"', '')
+                            raw_bytes = bytes.fromhex(varVal)
+                            return hex(len(raw_bytes))
+                        except Exception as e:
+                            print(e)
                     return hex(len(varVal.replace('"', '')))
                 else:
                     print(f"{red}Error: variable {extracted} doesn't exist.{rst}")
@@ -196,7 +359,30 @@ class Reader:
             else: return None
 
 
-
+    def rawBytesFormat(self, bytes_list, label=None, bytes_per_line=10):
+        try:
+            if not bytes_list:
+                return ""
+            hex_parts = []
+            for b in bytes_list:
+                hex_parts.append(f"0{b:02x}h")  # MASM: 0AAh
+            
+            chunks = [hex_parts[i:i+bytes_per_line] 
+                  for i in range(0, len(hex_parts), bytes_per_line)]
+            asm_lines = []
+            for i, chunk in enumerate(chunks):
+                if i == 0:
+                    asm_lines.append(f"{label} db {', '.join(chunk)}")
+                else:
+                    asm_lines.append(f"        db {', '.join(chunk)}")
+            
+            if len(bytes_list) > 20:
+                asm_lines.insert(0, f"; {len(bytes_list)} bytes")
+            asm = "\n".join(asm_lines) 
+            return asm
+        except Exception as e:
+            raise
+            return None
 
     def newVarAssm(self, Type, name, value, size):
         varEbpDict = self.findEbpVar(name)
@@ -210,10 +396,12 @@ class Reader:
                 sys.exit()
 
         currentStack = self.asmObj.stackStart
-        allTypes = dataTypes
+        allTypes = dataTypes if x64 else dataTypes_x86
         resVal = self.getValueType(value)
         asm = ""
         string = None
+        rawbytes = None
+        bytes_list = []
         if resVal == "int":
             value = hex(int(value))
         elif resVal == "hex":
@@ -224,6 +412,17 @@ class Reader:
             asm += pushedStr
         elif resVal == "sizeof":
             value = self.sizeOf(value)
+        elif resVal == "raw":
+            try:
+                rawbytes = True
+                hex_bytes = re.findall(r'\\x([0-9a-fA-F]{2})', value)
+                for seq in hex_bytes:
+                    bytes_list.append(int(seq, 16))
+                dotDataBytes = self.rawBytesFormat(bytes_list, name, 10)
+                self.asmObj.dotData = f"{dotDataBytes}\n" 
+            except Exception as e:
+                raise
+
         else:
             rtnDict = self.findEbpVar(value)
             if rtnDict:
@@ -233,31 +432,83 @@ class Reader:
         for var in mainVars:
             if name == var.Name:
                 size = var.Size
-                if size == 4:
-                    dType = "dword"
-                elif size == 2:
-                    dType = "word"
-                elif size == 1:
-                    dType == "byte"
-
+                dType = type_map.get(hex(int(size)))
+                #if size == 4:
+                #    dType = "dword"
+                #elif size == 2:
+                #    dType = "word"
+                #elif size == 1:
+                #    dType == "byte"
+                #else:
+                #    print(f"Not found: {size}{var.Name}")
+                if x64:
+                    size = 8
+                    dType = "qword"
                 if string:
-                    assmLine = f"  mov {y+dType+rst} ptr[ebp-{hex(currentStack)}], ebx"
+                    if x64:
+                        dType = "qword"
+                        assmLine = f"  mov {y+dType+rst} ptr[rbp-{hex(currentStack)}], rbx"
+                    else:
+                        assmLine = f"  mov {y+dType+rst} ptr[ebp-{hex(currentStack)}], ebx"
                     asm += "{:60s};{}={}".format(assmLine,lb+name,value+rst)
+                elif rawbytes:
+                    if x64:
+                        dType = "qword"
+                        if masm:
+                            if dataSection:
+                                assmLine = f"  lea rax, {name}\n"
+                                assmLine += f"  mov {y+dType+rst} ptr[rbp-{hex(currentStack)}], rax"
+                            else:
+                                assmLine = f";;;  lea rax, {name}\n"
+                                assmLine += f";;;  mov {y+dType+rst} ptr[rbp-{hex(currentStack)}], rax"
+                        elif nasm:
+                            if dataSection:
+                                assmLine = f"  lea rax, [rel {name}]\n"
+                                assmLine += f"  mov {y+dType+rst} ptr[rbp-{hex(currentStack)}], rax"
+                            else:
+                                assmLine = f";;;  lea rax, [rel {name}]\n"
+                                assmLine += f";;;  mov {y+dType+rst} ptr[rbp-{hex(currentStack)}], rax"
+                        else:
+                            print("[!] Error: Assembler not set")
+                            sys.exit()
+
+                    else:
+                        if dataSection:
+                            assmLine = f" lea eax, {name}\n"
+                            assmLine += f"  mov {y+dType+rst} ptr[ebp-{hex(currentStack)}], eax"
+                        else:
+                            assmLine = f";;;  lea eax, {name}\n"
+                            assmLine += f";;;  mov {y+dType+rst} ptr[ebp-{hex(currentStack)}], eax"
+
+
+                    asm += "{:87s};{}".format(assmLine,lb+name+rst)
                 else:
                     if Type == "newVarAdd" and varEbpVal:
                         if assignedEbpVal:
-                            assmLine = f"  mov ebx, dword ptr[{assignedEbpVal}]"
-                            asm += "{:47s};{}\n".format(assmLine,lb+name+rst)
-                            assmLine = f"  add {y+dType+rst} ptr[{varEbpVal}], ebx"
+                            if x64:
+                                dType = "qword"
+                                assmLine = f"  mov rbx, qword ptr[{assignedEbpVal}]"
+                                asm += "{:47s};{}\n".format(assmLine,lb+name+rst)
+                                assmLine = f"  add {y+dType+rst} ptr[{varEbpVal}], rbx"
+                            else:
+                                assmLine = f"  mov ebx, dword ptr[{assignedEbpVal}]"
+                                asm += "{:47s};{}\n".format(assmLine,lb+name+rst)
+                                assmLine = f"  add {y+dType+rst} ptr[{varEbpVal}], ebx"
                             asm += "{:60s}".format(assmLine)
                         else:
                             assmLine = f"  add {y+dType+rst} ptr[{varEbpVal}], {value}"
                             asm += "{:60s};{}".format(assmLine,lb+name+rst)
                     elif Type == "newVarSub" and varEbpVal:
                         if assignedEbpVal:
-                            assmLine = f"  mov ebx, dword ptr[{assignedEbpVal}]"
-                            asm += "{:47s};{}\n".format(assmLine, lb+name+rst)
-                            assmLine = f"  sub {y+dType+rst} ptr[{varEbpVal}], ebx"
+                            if x64:
+                                dType = "qword"
+                                assmLine = f"  mov rbx, qword ptr[{assignedEbpVal}]"
+                                asm += "{:47s};{}\n".format(assmLine, lb+name+rst)
+                                assmLine = f"  sub {y+dType+rst} ptr[{varEbpVal}], rbx"
+                            else:
+                                assmLine = f"  mov ebx, dword ptr[{assignedEbpVal}]"
+                                asm += "{:47s};{}\n".format(assmLine, lb+name+rst)
+                                assmLine = f"  sub {y+dType+rst} ptr[{varEbpVal}], ebx"
                             asm += "{:60s}".format(assmLine)
                         else:
                             assmLine = f"  sub {y+dType+rst} ptr[{varEbpVal}], {value}"
@@ -265,21 +516,34 @@ class Reader:
                     else:
                         if varEbpVal: # if the assigned var (left side) exists already
                             if assignedEbpVal: # if the right side is a variable
-                                assmLine = f"  mov ebx, dword ptr[{assignedEbpVal}]"
-                                asm += "{:60s}\n".format(assmLine)
-                                assmLine = f"  mov {y+dType+rst} ptr[{varEbpVal}], ebx"
+                                if x64:
+                                    dType = "qword"
+                                    assmLine = f"  mov rbx, qword ptr[{assignedEbpVal}]"
+                                    asm += "{:60s}\n".format(assmLine)
+                                    assmLine = f"  mov {y+dType+rst} ptr[{varEbpVal}], rbx"
+                                else:
+                                    assmLine = f"  mov ebx, dword ptr[{assignedEbpVal}]"
+                                    asm += "{:60s}\n".format(assmLine)
+                                    assmLine = f"  mov {y+dType+rst} ptr[{varEbpVal}], ebx"
                                 asm += "{:60s};{}\n".format(assmLine,lb+name+rst)
                             else:
                                 assmLine = f"  mov {y+dType+rst} ptr[{varEbpVal}], {value}"
                                 asm += "{:60s};{}".format(assmLine,lb+name+rst)
                         else:
-                            assmLine = f"  mov {y+dType+rst} ptr[ebp-{hex(currentStack)}], {value}"
+                            if x64:
+                                ## assigning a value to a variable
+                                assmLine = f"  mov {y+dType+rst} ptr[rbp-{hex(currentStack)}], {value}"
+                            else:
+                                assmLine = f"  mov {y+dType+rst} ptr[ebp-{hex(currentStack)}], {value}"
                             asm += "{:60s};{}".format(assmLine,lb+name+rst)
                 
                 if varEbpVal:
                     assignedEbp = f"{varEbpVal}"
                 else:
-                    assignedEbp = f"ebp-{hex(currentStack)}"
+                    if x64:
+                        assignedEbp = f"rbp-{hex(currentStack)}"
+                    else:
+                        assignedEbp = f"ebp-{hex(currentStack)}"
                 self.asmObj.stackStart += size
                 ebpDict = {var.Name:assignedEbp,
                            "value":value,
@@ -289,130 +553,256 @@ class Reader:
 
     def invokeSysCall(self):
         asm = ""
-        asm += f"  mov eax, ecx ; assume syscall number in ecx\n"
-        asm += f"  call {lb}invokeSysCall{rst}\n"
+        if x64:
+            asm += f"  mov r10, rcx\n"
+            asm += f"  mov rax, rdi ; assume syscall number in rdi\n"
+            asm += f"  call {lb}invokeSysCall{rst}\n"
+        else:
+            asm += f"  mov eax, ecx ; assume syscall number in ecx\n"
+            asm += f"  call {lb}invokeSysCall{rst}\n"
         return asm
 
 
     def getApiNumFromFile(self, funcName):
         asm = ""
         apiNumFromFile = readSysCalls(funcName, False, True)
-        asm += f"  mov edi, {apiNumFromFile}\n"
+        if x64:
+            asm += f"  mov rdi, {apiNumFromFile}\n"
+        else:
+            asm += f"  mov edi, {apiNumFromFile}\n"
         asm += f"  call {lb}GetSysModelNumber{rst}\n"
         return asm
 
-    def funcCallAssm(self, funcName, params, assignedTo):
+    def x64ParamAsm(self, idx, param):
         asm = ""
-        if funcName not in funcCalls:
-            asm += f"\n{lb+funcName+rst}:\n"
-            funcCalls.update({funcName:0})
+        ## Assigning values to rcx, rdx, r8, r9
+        try:
+            param = str(param)
+            x64Mov = param.replace("dword", "qword")
+            if idx == 0:
+                asm += f"  mov rcx, {x64Mov}"
+            elif idx == 1:
+                asm += f"  mov rdx, {x64Mov}"
+            elif idx == 2:
+                asm += f"  mov r8, {x64Mov}"
+            elif idx == 3:
+                asm += f"  mov r9, {x64Mov}"
+            else:
+                asm += f"  push {x64Mov}"
+        except Exception as e:
+            raise
+        return asm
+
+
+    def funcCallAssmHandler(self, stackAdjust, asm, funcName, assignedTo):
+        try:
+            apiNum = readSysCalls(funcName, False, True)
+            if apiNum:
+                syscallsAndApiNum.update({funcName:apiNum})
+            else:
+                print(f"Error: couldn't find api num from syscalls file")
+            asm += self.getApiNumFromFile(funcName)
+            asm += self.invokeSysCall()
+            if assignedTo:
+                for var in mainVars:
+                    if var.Name == assignedTo:
+                        if var.Value:
+                            for ebp in ebpVars:
+                                if var.Name in ebp:
+                                    ebpVal = ebp[var.Name]
+                                    if x64:
+                                        prepAsm = f"  mov {lb}qword{rst} ptr[{ebpVal}], rax"
+                                    else:
+                                        prepAsm = f"  mov {lb}dword{rst} ptr[{ebpVal}], eax"
+                                    asm += "{:64s};{} {}\n".format(prepAsm,lb+"save return value in",o+var.Name+rst)
+                        else:
+                            currentStack = self.asmObj.stackStart
+                            if x64:
+                                prepAsm = f"  mov {y}qword{rst} ptr[rbp-{hex(currentStack)}], rax"
+                            else:
+                                prepAsm = f"  mov {y}dword{rst} ptr[ebp-{hex(currentStack)}], eax"
+                            asm += "{:64s};{} {}\n".format(prepAsm,lb+"save return value in",o+var.Name+rst)
+                            if x64:
+                                assignedEbp = f"rbp-{hex(currentStack)}"
+                                var.Value = "RAX"
+                                ebpDict = {var.Name:assignedEbp,
+                                    "value":"RAX",
+                                    "type":"dword"}
+                            else:
+                                assignedEbp = f"ebp-{hex(currentStack)}"
+                                var.Value = "EAX"
+                                ebpDict = {var.Name:assignedEbp,
+                                    "value":"EAX",
+                                    "type":"dword"}
+                            if x64:
+                                self.asmObj.stackStart += 0x8
+                            else:
+                                self.asmObj.stackStart += 0x4
+            if x64:
+                asm += f"  add rsp, {hex(stackAdjust+32)}\n"
+            else:
+                asm += f"  add esp, {hex(stackAdjust)}\n"
+        except Exception as e:
+            raise
+        return(asm)
+
+    def get_parameter_order(self, params):
+        if x64:
+            register_params = params[:4]
+            stack_params = params[4:][::-1]  # Reverse only params 5+
+            return register_params + stack_params
         else:
-            funcCallNum = funcCalls[funcName]
-            NewfuncName = f"{funcName}{funcCallNum+1}"
-            funcCalls.update({NewfuncName:funcCallNum+1})
-            asm += f"\n{lb+NewfuncName+rst}:\n"
+            # x86 (32-bit): ALL params are pushed in reverse order
+            return params
+
+    def funcCallAssmX86(self, params, funcName, assignedTo):
+        params = self.get_parameter_order(params)
+        asm = ""
         eaxAssm = ""
         stackAdjust = 0
-        for func in mainVars:
-            if func.Name == funcName:
-                for param in reversed(params):
-                    stackAdjust += 4
-                    if param[0] != "&":
-                        paramType = self.getValueType(param)
-                        if paramType == "variable":
-                            ebp = self.findEbpVar(param)
-                            if ebp:
-                                ebpOff = ebp[param]
-                                ebpVal = ebp["value"]
-                                ebpType = ebp["type"]
-                                prepAsm = f"  push {y+ebpType+rst} ptr[{ebpOff}]"
-                                asm += "{:60s};{}:{}\n".format(prepAsm,lb+param,o+ebpVal+rst)
-                            else:
-                                if param in specialVars:
-                                    newParam = specialVars[param]
-                                    prepAsm = f"  push {newParam}"
-                                    asm += "{:47s};{}\n".format(prepAsm,lb+param+rst)
+        numberOfParams = len(params)
+        RCX = None
+        RDX = None
+        R8 = None
+        R9 = None
+        try:
+            for func in mainVars:
+                if func.Name == funcName:
+                    for idx, param in enumerate(params if x64 else reversed(params)):
+                        stackAdjust += 4
+                        if param[0] != "&":
+                            paramType = self.getValueType(param)
+                            if paramType == "variable":
+                                ebp = self.findEbpVar(param)
+                                if ebp:
+                                    ebpOff = ebp[param]
+                                    ebpVal = ebp["value"]
+                                    if len(ebpVal) > 10 and "\\x" in ebpVal:
+                                        raw_bytes = ebpVal.encode('latin-1') if isinstance(ebpVal, str) else ebpVal
+                                        trim_bytes = raw_bytes[:10]
+                                        hex_str = ''.join([f'\\x{byte:02x}' for byte in trim_bytes])
+                                        hex_str += "# ...truncated"
+                                        ebpVal = hex_str
+                                        
+                                    ebpType = ebp["type"]
+                                    reg = f"{y+ebpType+rst} ptr[{ebpOff}]"
+                                    if x64:
+                                        prepAsm = self.x64ParamAsm(idx, reg)
+                                    else:
+                                        prepAsm = f"  push {y+ebpType+rst} ptr[{ebpOff}]"
+                                        #asm += "{:60s};{}:{}\n".format(prepAsm,lb+param,o+ebpVal+rst)
+                                    asm += "{:60s};{}:{}\n".format(prepAsm,lb+param,o+ebpVal+rst)
                                 else:
-                                    newParam = self.reservedType(param)
-                                    if newParam != param:
-                                        newParam = hex(newParam)
-                                        prepAsm = f"  push {newParam}"
+                                    if param in specialVars:
+                                        newParam = specialVars[param]
+                                        reg = f"{newParam}"
+                                        if x64:
+                                            prepAsm = self.x64ParamAsm(idx, newParam)
+                                        else:
+                                            prepAsm = f"  push {newParam}"
                                         asm += "{:47s};{}\n".format(prepAsm,lb+param+rst)
                                     else:
-                                        print(f"{red}Error: parameter {param} did not match any variable{rst}")
-                                        sys.exit()
+                                        newParam = self.reservedType(param)
+                                        if newParam != param:
+                                            newParam = hex(newParam)
+                                            if x64:
+                                                prepAsm = self.x64ParamAsm(idx,newParam)
+                                            else:
+                                                prepAsm = f"  push {newParam}"
+                                            asm += "{:47s};{}\n".format(prepAsm,lb+param+rst)
+                                        else:
+                                            print(f"{red}Error: parameter {param} did not match any variable{rst}")
+                                            sys.exit()
 
-                        elif paramType == "string":
-                            isString = re.findall('"(.*)"', param)
-                            if isString:
-                                pushStr = isString[0]
-                                strAsm = self.pushString(pushStr)
-                                asm += strAsm
-                        elif paramType == "int":
-                            paramVal = hex(int(param))
-                            prepAsm = f"  push {paramVal}"
-                            asm += "{:47s};{}\n".format(prepAsm,lb+param+rst)
-                        elif paramType == "hex":
-                            v = hex(int(param, 16))
-                            prepAsm = f"  push {v}"
-                            asm += "{:44s};{}\n".format(prepAsm,lb+param+rst)
-                        elif paramType == "sizeof":
-                            foundSizeOf, rtnVal = self.isSizeOf(param)
-                            if foundSizeOf:
-                                if self.isStruct(rtnVal):
-                                    paramVal = self.getStructSize(rtnVal)
-                                    prepAsm = f"  push {paramVal}"
-                                    asm += "{:47s};{}\n".format(prepAsm,lb+param+rst)
+                            elif paramType == "string":
+                                isString = re.findall('"(.*)"', param)
+                                if isString:
+                                    pushStr = isString[0]
+                                    strAsm = self.pushString(pushStr)
+                                    asm += strAsm
+                            elif paramType == "int":
+                                paramVal = hex(int(param))
+                                if x64:
+                                    prepAsm = self.x64ParamAsm(idx, paramVal)
                                 else:
-                                    paramVal = self.sizeOf(param)
                                     prepAsm = f"  push {paramVal}"
-                                    asm += "{:47s};{}\n".format(prepAsm,lb+param+rst)
-                        else:
-                            if param in specialVars:
-                                paramVal = specialVars[param]
-                                prepAsm = f"  push {paramVal}"
+                                asm += "{:47s};{}\n".format(prepAsm,lb+param+rst)
+                            elif paramType == "hex":
+                                v = hex(int(param, 16))
+                                if x64:
+                                    prepAsm = self.x64ParamAsm(idx, v)
+                                else:
+                                    prepAsm = f"  push {v}"
                                 asm += "{:44s};{}\n".format(prepAsm,lb+param+rst)
+                            elif paramType == "sizeof":
+                                foundSizeOf, rtnVal = self.isSizeOf(param)
+                                if foundSizeOf:
+                                    if self.isStruct(rtnVal):
+                                        paramVal = self.getStructSize(rtnVal)
+                                        if x64:
+                                            prepAsm = self.x64ParamAsm(idx, paramVal)
+                                        else:
+                                            prepAsm = f"  push {paramVal}"
+                                        asm += "{:47s};{}\n".format(prepAsm,lb+param+rst)
+                                    else:
+                                        paramVal = self.sizeOf(param)
+                                        if x64:
+                                            prepAsm = self.x64ParamAsm(idx, paramVal)
+                                        else:
+                                            prepAsm = f"  push {paramVal}"
+                                        asm += "{:47s};{}\n".format(prepAsm,lb+param+rst)
+                            else:
+                                if param in specialVars:
+                                    paramVal = specialVars[param]
+                                    if x64:
+                                        prepAsm = self.x64ParamAsm(idx, paramVal)
+                                    else:
+                                        prepAsm = f"  push {paramVal}"
+                                    asm += "{:44s};{}\n".format(prepAsm,lb+param+rst)
 
-                    else:
-                        newParam = param.replace("&", "")
-                        ebp = self.findEbpVar(newParam)
-                        if ebp:
-                            ebpOff = ebp[newParam]
-                            ebpVal = ebp["value"]
-                            ebpType = ebp["type"]
-                            prepAsm = f"  lea ebx, {y+'dword'+rst} ptr[{ebpOff}]"
-                            asm += "{:60s};{}:{}\n".format(prepAsm,lb+param,o+ebpVal+rst)
-                            asm += f"  push ebx\n"
-                break
+                        else:
+                            newParam = param.replace("&", "")
+                            ebp = self.findEbpVar(newParam)
+                            if ebp:
+                                ebpOff = ebp[newParam]
+                                ebpVal = ebp["value"]
+                                ebpType = ebp["type"]
+                                if x64:
+                                    prepAsm = f"  lea rbx, {y+'qword'+rst} ptr[{ebpOff}]"
+                                else:
+                                    prepAsm = f"  lea ebx, {y+'dword'+rst} ptr[{ebpOff}]"
+                                asm += "{:60s};{}:{}\n".format(prepAsm,lb+param,o+ebpVal+rst)
+                                if x64:
+                                    prepAsm = self.x64ParamAsm(idx, "rbx")
+                                    asm += "{:60s}\n".format(prepAsm)
+                                else:
+                                    asm += f"  push ebx\n"
+                    break
+        except Exception as e:
+            raise
+        if x64:
+            asm += " sub rsp, 0x20\n"
+        return self.funcCallAssmHandler(stackAdjust, asm, funcName, assignedTo)
 
-        apiNum = readSysCalls(funcName, False, True)
-        if apiNum:
-            syscallsAndApiNum.update({funcName:apiNum})
-        else:
-            print(f"Error: couldn't find api num from syscalls file")
-        asm += self.getApiNumFromFile(funcName)
-        asm += self.invokeSysCall()
-        if assignedTo:
-            for var in mainVars:
-                if var.Name == assignedTo:
-                    if var.Value:
-                        for ebp in ebpVars:
-                            if var.Name in ebp:
-                                ebpVal = ebp[var.Name]
-                                prepAsm = f"  mov {lb}dword{rst} ptr[{ebpVal}], eax"
-                                asm += "{:64s};{} {}\n".format(prepAsm,lb+"save return value in",o+var.Name+rst)
-                    else:
-                        currentStack = self.asmObj.stackStart
-                        prepAsm = f"  mov {y}dword{rst} ptr[ebp-{hex(currentStack)}], eax"
-                        asm += "{:64s};{} {}\n".format(prepAsm,lb+"save return value in",o+var.Name+rst)
-                        assignedEbp = f"ebp-{hex(currentStack)}"
-                        var.Value = "EAX"
-                        self.asmObj.stackStart += 0x4
-                        ebpDict = {var.Name:assignedEbp,
-                           "value":"EAX",
-                           "type":"dword"}
-        asm += f"  add esp, {hex(stackAdjust)}\n"
-        return(asm)
+        
+
+    def funcCallAssm(self, funcName, params, assignedTo):
+        asm = ""
+        try:
+            if funcName not in funcCalls:
+                asm += f"\n{lb+funcName+rst}:\n"
+                funcCalls.update({funcName:0})
+            else:
+                funcCallNum = funcCalls[funcName]
+                NewfuncName = f"{funcName}{funcCallNum+1}"
+                funcCalls.update({NewfuncName:funcCallNum+1})
+                asm += f"\n{lb+NewfuncName+rst}:\n"
+            result = self.funcCallAssmX86(params, funcName, assignedTo)
+            asm += result
+        except Exception as e:
+            raise
+        return asm
+
 
     def structPtrAsm(self,ptr):
         currentStack = self.asmObj.stackStart
@@ -422,7 +812,10 @@ class Reader:
         for s in structs:
             if s.Pointer == ptr:
                 pointerName = s.Name
-                ptrOffset = f"ebp-{hex(currentStack)}"
+                if x64:
+                    ptrOffset = f"rbp-{hex(currentStack)}"
+                else:
+                    ptrOffset = f"ebp-{hex(currentStack)}"
                 ebpDict = {s.Pointer:ptrOffset,
                            "value":"0x0",
                            "type":"struct",
@@ -431,16 +824,25 @@ class Reader:
                  
                 for mem in members:
                     for key, value in mem.items():
-                        if key == "0x4":
-                            dType = "dword"
-                        elif key == "0x2":
-                            dType = "word"
-                        elif key == "0x1":
-                            dType = "byte"
+                        dType = type_map.get(hex(int(key)) if "0x" not in key else key)
+                        #if key == "0x4":
+                        #    dType = "dword"
+                        #elif key == "0x2":
+                        #    dType = "word"
+                        #elif key == "0x1":
+                        #    dType = "byte"
+                        #elif key == "0x8":
+                        #    dType = "qword"
                         ebpDict["members"].append({value:hex(currentStack)})
-                        prepAsm = f"  mov {y+dType+rst} ptr[ebp-{hex(currentStack)}], 0x0"
+                        if x64:
+                            prepAsm = f"  mov {y+dType+rst} ptr[rbp-{hex(currentStack)}], 0x0"
+                        else:
+                            prepAsm = f"  mov {y+dType+rst} ptr[ebp-{hex(currentStack)}], 0x0"
                         asm += "{:60s};{}\n".format(prepAsm, lb+value+rst)
-                        ptrOffset = f"ebp-{hex(currentStack)}"
+                        if x64:
+                            ptrOffset = f"rbp-{hex(currentStack)}"
+                        else:
+                            ptrOffset = f"ebp-{hex(currentStack)}"
                         currentStack += int(key, 16)
                 ebpVars.append(ebpDict)
         self.asmObj.stackStart = currentStack
@@ -462,7 +864,10 @@ class Reader:
         finalAsm = ""
         if v.instance != "":
             v.Name = v.instance
-        currStackPtr = f"ebp-{hex(self.asmObj.stackStart)}"
+        if x64:
+            currStackPtr = f"rbp-{hex(self.asmObj.stackStart)}"
+        else:
+            currStackPtr = f"ebp-{hex(self.asmObj.stackStart)}"
         ebpDict = {v.Name:currStackPtr,
                    "value":"0x0",
                    "type":"struct",
@@ -471,7 +876,6 @@ class Reader:
         try:
             for mem in members:
                 for key, value in mem.items():
-
                     possibleArr = re.search(r'\[(\d+)\]', value)
                     if possibleArr:
                         ArrSize = possibleArr.group(1)
@@ -483,30 +887,52 @@ class Reader:
                         dType = "word"
                     elif key == "0x1":
                         dType = "byte"
+                    elif key == "0x8":
+                        dType = "qword"
+                    else:
+                        print(f"[!] Unknwon type")
                     ebpDict["members"].append({value:hex(currentStack)})
-                    tmpStackPtr = f"ebp-{hex(currentStack)}"
+                    if x64:
+                        tmpStackPtr = f"rbp-{hex(currentStack)}"
+                    else:
+                        tmpStackPtr = f"ebp-{hex(currentStack)}"
                     if "->" in value:
                         isInitialized = v.Value.replace(" ", "")
                         if "0" in isInitialized or "{0}" in isInitialized:
-                            prepAsm = f"  mov {y}dword{rst} ptr[ebp-{hex(self.asmObj.stackStart)}], 0x0"
+                            if x64:
+                                prepAsm = f"  mov {y}dword{rst} ptr[rbp-{hex(self.asmObj.stackStart)}], 0x0"
+                            else:
+                                prepAsm = f"  mov {y}dword{rst} ptr[ebp-{hex(self.asmObj.stackStart)}], 0x0"
                             asm += "{:60s};{}\n".format(prepAsm, lb+"ptr:"+ptrName+rst)
                         else:
-                            prepAsm = f"  lea ebx, {y}dword{rst} ptr[{offset}]"
-                            asm += "{:60s};{}\n".format(prepAsm, lb+"ptr:"+ptrName+rst)
-                            prepAsm = f"  mov {y}dword{rst} ptr[ebp-{hex(self.asmObj.stackStart)}], ebx"
+                            if x64:
+                                prepAsm = f"  lea rbx, {y}qword{rst} ptr[{offset}]"
+                                asm += "{:60s};{}\n".format(prepAsm, lb+"ptr:"+ptrName+rst)
+                                prepAsm = f"  mov {y}qword{rst} ptr[rbp-{hex(self.asmObj.stackStart)}], rbx"
+                            else:
+                                prepAsm = f"  lea ebx, {y}dword{rst} ptr[{offset}]"
+                                asm += "{:60s};{}\n".format(prepAsm, lb+"ptr:"+ptrName+rst)
+                                prepAsm = f"  mov {y}dword{rst} ptr[ebp-{hex(self.asmObj.stackStart)}], ebx"
+                            #asm += "{:60s};{}\n".format(prepAsm, lb+"ptr:"+ptrName+rst)
                             asm += "{:60s}\n".format(prepAsm)
                         self.asmObj.stackStart += int(key, 16)
                     else:
                         if "0" in v.Value or "null" in v.Value.lower():
-                            prepAsm = f"  mov {y+dType+rst} ptr[ebp-{hex(self.asmObj.stackStart)}], 0x0"
+                            if x64:
+                                prepAsm = f"  mov {y+dType+rst} ptr[rbp-{hex(self.asmObj.stackStart)}], 0x0"
+                            else:
+                                prepAsm = f"  mov {y+dType+rst} ptr[ebp-{hex(self.asmObj.stackStart)}], 0x0"
                             asm += "{:60s};{}\n".format(prepAsm, lb+value+rst)
                             self.asmObj.stackStart += int(key, 16)
                         elif v.Value == "":
-                            prepAsm = f"  mov {y+dType+rst} ptr[ebp-{hex(self.asmObj.stackStart)}], 0x0"
+                            if x64:
+                                prepAsm = f"  mov {y+dType+rst} ptr[rbp-{hex(self.asmObj.stackStart)}], 0x0"
+                            else:
+                                prepAsm = f"  mov {y+dType+rst} ptr[ebp-{hex(self.asmObj.stackStart)}], 0x0"
                             asm += "{:60s};{}\n".format(prepAsm, lb+value+rst)
                             self.asmObj.stackStart += int(key, 16)
         except Exception as e:
-            print(e)
+            raise
         ebpDict[v.Name] = tmpStackPtr 
         ebpVars.append(ebpDict)
         finalAsm += asm
@@ -565,7 +991,10 @@ class Reader:
             elif (v.Name == varName) and v.Type == "structInstance":
                 if self.isUnicode(varName):
                     offset = self.findStructMember(varName, "Buffer")
-                    result = f"ebp-{offset}"
+                    if x64:
+                        result = f"rbp-{offset}"
+                    else:
+                        result = f"ebp-{offset}"
                     return result
                 return self.getEbpValue(varName)        
             
@@ -590,7 +1019,13 @@ class Reader:
                     if foundSizeOf:
                         return "sizeof"
                 if '"' in value:
-                    return "string"
+                    try:
+                        hex_bytes = re.findall(r'\\x([0-9a-fA-F]{2})', value)
+                        if hex_bytes:
+                            return "raw"
+                        return "string"
+                    except Exception as c:
+                        raise
                 elif "u:" in value:
                     return "unicode"
                 else:
@@ -632,12 +1067,14 @@ class Reader:
 
         if not memberSize:
             return
-        if memberSize == "0x4":
-            dType = "dword"
-        elif memberSize == "0x2":
-            dType = "word"
-        elif memberSize == "0x1":
-            dType = "byte"
+
+        dType = type_map.get(hex(int(memberSize)) if "0x" not in memberSize else memberSize)
+        #if memberSize == "0x4":
+        #    dType = "dword"
+        #elif memberSize == "0x2":
+        #    dType = "word"
+        #elif memberSize == "0x1":
+        #    dType = "byte"
         
         if value == "NULL":
             value = 0
@@ -645,14 +1082,24 @@ class Reader:
 
         if vType == "int":
             varValue = int(value)
-            prepAsm = f"  mov {y+dType+rst} ptr[ebp-{memberOffset}], {hex(int(varValue))}"
+            if x64:
+                prepAsm = f"  mov {y+dType+rst} ptr[rbp-{memberOffset}], {hex(int(varValue))}"
+            else:
+                prepAsm = f"  mov {y+dType+rst} ptr[ebp-{memberOffset}], {hex(int(varValue))}"
             asm += "{:60s};{}={}\n".format(prepAsm, lb+stMember+rst, lb+str(varValue)+rst)
         elif vType == "hex":
-            prepAsm = f"  mov {y+dType+rst} ptr[ebp-{memberOffset}], {value}"
+            if x64:
+                prepAsm = f"  mov {y+dType+rst} ptr[rbp-{memberOffset}], {value}"
+            else:
+                prepAsm = f"  mov {y+dType+rst} ptr[ebp-{memberOffset}], {value}"
             asm += "{:60s};{}={}\n".format(prepAsm, lb+stMember+rst, lb+str(value)+rst)
         elif vType == "string":
             pushedStr = self.pushString(value)
-            prepAsm = f"  mov {y+dType+rst} ptr[ebp-{memberOffset}], ebx"
+            if x64:
+                dType = "qword"
+                prepAsm = f"  mov {y+dType+rst} ptr[rbp-{memberOffset}], rbx"
+            else:
+                prepAsm = f"  mov {y+dType+rst} ptr[ebp-{memberOffset}], ebx"
             asm += pushedStr
             asm += "{:60s};{}={}\n".format(prepAsm, lb+stMember+rst, lb+str(value)+rst)
         elif vType == "variable":
@@ -660,18 +1107,25 @@ class Reader:
             varValue = self.getVarValue(isVariable)
             varType = self.getValueType(varValue)
             varEbpVal = self.getEbpValue(isVariable)
-
-
-            prepAsm = f"  mov ebx, dword ptr[{varEbpVal}]"
-            asm += "{:47s};{}\n".format(prepAsm, lb+isVariable+rst)
-            prepAsm = f"  mov dword ptr[ebp-{memberOffset}], ebx"
+            if x64:
+                prepAsm = f"  mov rbx, qword ptr[{varEbpVal}]"
+                asm += "{:47s};{}\n".format(prepAsm, lb+isVariable+rst)
+                prepAsm = f"  mov qword ptr[rbp-{memberOffset}], rbx"
+            else:
+                prepAsm = f"  mov ebx, dword ptr[{varEbpVal}]"
+                asm += "{:47s};{}\n".format(prepAsm, lb+isVariable+rst)
+                prepAsm = f"  mov dword ptr[ebp-{memberOffset}], ebx"
             asm += "{:47s};{}<=>{}\n".format(prepAsm, lb+stMember+rst, lb+isVariable+rst)
         elif vType == "unicode":
             extractVal = value.split("u:")[1]
             hexVal = self.toHex(extractVal)
             uniVal = self.toUnicode(hexVal)
             pushedStr = self.pushAscii(uniVal)
-            prepAsm = f"  mov {y+dType+rst} ptr[ebp-{memberOffset}], ebx"
+            if x64:
+                dType = "qword"
+                prepAsm = f"  mov {y+dType+rst} ptr[rbp-{memberOffset}], rbx"
+            else:
+                prepAsm = f"  mov {y+dType+rst} ptr[ebp-{memberOffset}], ebx"
             asm += pushedStr
             asm += "{:60s};{}={}\n".format(prepAsm, lb+stMember+rst, lb+str(value)+rst)
             
@@ -810,7 +1264,7 @@ class Reader:
         if "InitUnicodeStr" in line:
             return True,'',line,"unicode",None,False
 
-        allData = dataTypes
+        allData = dataTypes if x64 else dataTypes_x86
         if sName in allData:    #check if handle, pvoid, ulong..etc
             size = allData[sName]
             if "=" in line and "+=" not in line:
@@ -905,7 +1359,6 @@ class Reader:
                                                     "structMemberName":hiddenStructMember,
                                                     "hiddenVarName":hiddenVarName,
                                                     "hiddenNestedMember":hiddenStructNestedMember}
-
                                 return True,assignedVar,hiddenStructData,"hiddenStruct",None,True
 
 
@@ -926,8 +1379,12 @@ class Reader:
         return False,None,None,None,None,None
 
     def pushNull(self):
-        tmp = "\n  xor ebx, ebx\n"
-        tmp += "  push ebx\n"
+        if x64:
+            tmp = "\n  xor rbx, rbx\n"
+            tmp += "  push rbx\n"
+        else:
+            tmp = "\n  xor ebx, ebx\n"
+            tmp += "  push ebx\n"
         return tmp
 
     def pushString(self, str2push):
@@ -946,6 +1403,7 @@ class Reader:
             i -= 4
 
         asmCode2 = self.pushNull()
+
         Flag = True  
         for word in pushList:
             data = word[::-1]
@@ -953,12 +1411,14 @@ class Reader:
             if wordLen == 4:
                 wordHex = "".join("{:02x}".format(ord(c)) for c in data)
                 prepAsm = f"  push 0x{wordHex}"
+                asmLine = {"instr":prepAsm, "comment":data}
                 asmCode2 += "{:47s};{}\n".format(prepAsm,lb+data+rst)
 
             elif wordLen == 2:
                 wordHex = "".join("{:02x}".format(ord(c)) for c in data)
                 prepAsm = f"  mov bx, 0x{wordHex}\n"
                 prepAsm += "  push bx"
+                asmLine = {"instr":prepAsm, "comment":data}
                 asmCode2 += "{:64s};{}\n".format(prepAsm,lb+data+rst)
 
             elif wordLen == 1 or wordLen == 3:
@@ -981,19 +1441,63 @@ class Reader:
                 if(wordLen == 1):
                     tmpAsm += '  push bx\n'
                 else:
-                    tmpAsm += '  push ebx\n'
-              
-                tmpAsm += "  mov ebx, esp\n"
-                tmpAsm += '  inc ebx\n'
-
+                    if x64:
+                        tmpAsm += '  push rbx\n'
+                    else:
+                        tmpAsm += '  push ebx\n'
+                if x64: 
+                    tmpAsm += "  mov rbx, rsp\n"
+                    tmpAsm += '  inc rbx\n'
+                else:
+                    tmpAsm += "  mov ebx, esp\n"
+                    tmpAsm += '  inc ebx\n'
+                
                 asmCode2 += tmpAsm
         if Flag:
-            prepAsm = "  push esp"
-            asmCode2 += "{:47s};{}\n".format(prepAsm,lb + str2push+rst)
-            asmCode2 += "  pop ebx\n"
+            if x64:
+                prepAsm = "  push rsp"
+                asmCode2 += "{:47s};{}\n".format(prepAsm,lb + str2push+rst)
+                prepAsm = "  pop rbx\n"
+                asmCode2 += "  pop rbx\n"
+            else:
+                prepAsm = "  push esp"
+                asmCode2 += "{:47s};{}\n".format(prepAsm,lb + str2push+rst)
+                prepAsm = "  pop ebx\n"
+                asmCode2 += "  pop ebx\n"
         return asmCode2
 
+    def pushAsciiX64(self, asciiArr):
+        bytes_per_chunk = 8  # 4 UTF-16 chars = 8 bytes
+        total_len = len(asciiArr)
+        chunks = []
+        i = 0
+        while i < total_len:
+            end = min(i + bytes_per_chunk, total_len)
+            chunk = asciiArr[i:end]
+            while len(chunk) < bytes_per_chunk:
+                chunk.append('00')
+            chunks.append(chunk)
+            i += bytes_per_chunk
+        
+        asm = ""
+        total_size = len(chunks) * bytes_per_chunk
+        asm += f"  sub rsp, 0x{total_size:02x}\n"
+        
+        for idx, chunk in enumerate(chunks):
+            hex_str = ''.join(chunk)
+            bytes_le = bytes.fromhex(hex_str)
+            little_endian = ''.join(f"{b:02x}" for b in reversed(bytes_le))
+            offset = f"+{idx * bytes_per_chunk}" if idx != 0 else ""
+            asm += f"  mov rax, 0x{little_endian}\n"
+            asm += f"  mov qword ptr[rsp{offset}], rax\n"
+        
+        asm += "  mov rbx, rsp\n"
+        return asm
+
+
     def pushAscii(self, asciiArr):
+        if x64:
+            return self.pushAsciiX64(asciiArr)
         length = len(asciiArr)
         i = 0
         newData = []
@@ -1015,8 +1519,12 @@ class Reader:
                 b = format(byte, '02x')
                 newHex += b
             asm += f"  push 0x{newHex}\n"
-        asm += "  mov ebx, esp\n"
-        asm += f"  add esp, {hex(numberOfPushes*4)}\n"
+        if x64:
+            asm += "  mov rbx, rsp\n"
+            asm += f"  add rsp, {hex(numberOfPushes*4)}\n"
+        else:
+            asm += "  mov ebx, esp\n"
+            asm += f"  add esp, {hex(numberOfPushes*4)}\n"
         return asm 
 
     def initUnicode(self, ptrName, unicode, length, line):
@@ -1047,19 +1555,18 @@ class Reader:
                 var.Value = rValue
 
     def removeAsmComments(self, asm):
-        asmNoComment = ""
-        for i in asm.split("\n"):
-            i = i.strip()
-            i = i.replace(lb, "")
-            i = i.replace(y, "")
-            i = i.replace(o, "")
-            i = i.replace(rst, "")
-            commentFound = re.findall('(.*);', i)
-            if commentFound:
-                asmNoComment += commentFound[0] + "\n"
-            else:
-                asmNoComment += i + "\n"
-        return asmNoComment
+        #ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
+        ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
+        cleaned_lines = []
+        for line in asm.split('\n'):
+            line = ansi_escape.sub('', line)
+            line = re.sub(r';.*$', '', line).strip()
+            if line:  # Keep non-empty lines
+                cleaned_lines.append(line)
+        #line = re.sub(r';.*$', '', line).strip()
+        return '\n'.join(cleaned_lines)
+        #return ansi_escape.sub('', asm)
+
     def genRandStr(self, length):
         letters = string.ascii_letters
         return ''.join(random.choice(letters) for _ in range(length))
@@ -1093,10 +1600,12 @@ class Reader:
         asm += f"  {op} {lb}{jmpTo}{rst}\n"
         return asm
 
-    def hiddenStructAsm(self, varName, offset, hiddenVarName):
+    def hiddenStructAsm(self, varName, offset, hiddenVarName, size):
         asm = ""
         srcVarEbp = None 
         destVarEbp = None
+        data_types = {"0x8":"qword","0x4":"dword", "0x2":"word", "0x2":"byte"}
+        register_type = {"0x4":"ebx", "0x8":"rbx"}
         for ebp in ebpVars:
             vName, ebpVal = next(iter(ebp.items()))
             if vName == hiddenVarName:
@@ -1104,14 +1613,32 @@ class Reader:
             elif vName == varName:
                 destVarEbp = ebpVal
         if srcVarEbp and destVarEbp:
-            prepAsm = f"  mov ebx, dword ptr[{srcVarEbp}]"
-            asm += "{:47s};{}\n".format(prepAsm, lb+"Get address of "+hiddenVarName+rst)
-            if offset == 0:
-                prepAsm = f"  mov ebx, dword ptr[ebx]"
+            if x64:
+                prepAsm = f"  mov rbx, qword ptr[{srcVarEbp}]"
             else:
-                prepAsm = f"  mov ebx, dword ptr[ebx+{hex(offset)}]"
+                prepAsm = f"  mov ebx, dword ptr[{srcVarEbp}]"
+            asm += "{:47s};{}\n".format(prepAsm, lb+"Get address of "+hiddenVarName+rst)
+
+            dType = data_types.get(size)
+            if not dType:
+                print("couldn't find for ", size, hiddenVarName, varName, offset)
+
+            register = register_type.get(size)
+            if offset == 0:
+                if x64:
+                    prepAsm = f"  mov {register}, {dType} ptr[rbx]"
+                else:
+                    prepAsm = f"  mov ebx, dword ptr[ebx]"
+            else:
+                if x64:
+                    prepAsm = f"  mov {register}, {dType} ptr[rbx+{hex(offset)}]"
+                else:
+                    prepAsm = f"  mov ebx, dword ptr[ebx+{hex(offset)}]"
             asm += "{:47s};{}\n".format(prepAsm, lb+"Access offset " + str(hex(offset)) + " in " +hiddenVarName+rst)
-            prepAsm = f"  mov dword ptr[{destVarEbp}], ebx"
+            if x64:
+                prepAsm = f"  mov qword ptr[{destVarEbp}], rbx"
+            else:
+                prepAsm = f"  mov dword ptr[{destVarEbp}], ebx"
             asm += "{:47s};{}\n".format(prepAsm, lb+"Copy value to " +varName+rst)
         return asm
 
@@ -1121,20 +1648,32 @@ class Reader:
                 return hs.Members
         return False
 
+    def findSizeByDataType(self):
+        pass
     def findNestedMemberSize(self, data, nestedMember):
         totalSize = 0
         found = False
-        combinedDict = {}
-        for x in data:
-            for key, val in x.items():
-                newdict = {val:key}
-                combinedDict.update(newdict)
-        for elem, size in combinedDict.items():
-            if nestedMember == elem:
-                found = True
-                break
-            totalSize += int(size, 16)
-        return found, totalSize
+        offset = 0
+        size = 0
+        iteration = 0
+        for count,field in enumerate(data):
+            for size_str, name in field.items():
+                size = int(size_str, 16)
+                if x64:
+                    #alignment = min(size, 8) if size <= 8 else 8
+                    pad = (size - (offset % size)) % size
+                    offset += pad
+                    #if offset % alignment != 0:
+                    #    print(f"[*] Offset {offset} not aligned, alignment {alignment}")
+                    #    pad = alignment - (offset % alignment)
+                    #    print(f"Aligning offset {offset} , padding {pad}")
+                    #    offset += pad
+                if name == nestedMember:
+                    if count == 0:                                                                                         
+                        offset = 0                                                                                         
+                    return True, offset, size                                                                              
+                offset += size 
+        return False, offset, size  
 
     def hiddenStruct(self, varName, structData):
         hiddenType = structData["type"]
@@ -1143,17 +1682,36 @@ class Reader:
         hiddenVarName = structData["hiddenVarName"]
         offset = 0
         found = False
+        foundSize = 0
         members = self.findHiddenStruct(structName)
         if not members:
             print(f"{red}Error: could not find struct name structName {rst}")
             sys.exit()
         sizeAndName = [(key, value) for memberDict in members for key, value in memberDict.items()]
+        sizeAndNameDict = [{key :value} for memberDict in members for key, value in memberDict.items()]
         if hiddenType == "regular":
-            for size, name in sizeAndName:
-                if structMember == name:
-                    found = True
-                    break
-                offset += int(size, 16)
+            found, recvSize, memberSize = self.findNestedMemberSize(sizeAndNameDict, structMember)
+            if found:
+                if memberSize < 1:
+                    print(f"[!] Error: invalid member size")
+                    sys.exit()
+                #foundSize = f"{hex(recvSize)}"
+                offset += recvSize
+                memberSize = f"0x{memberSize}"
+            else:
+                print(f"[!] Error: couldn't find member size")
+                sys.exit()
+            #offset1 = 0
+            #for size1, name1 in sizeAndName:
+            #    if structMember == name1:
+            #        found1 = True
+            #        foundSize1 = size1
+            #        offset1 += int(size1, 16)
+            #        break
+            #    offset1 += int(size1, 16)
+            #print(offset1, foundSize1 , offset, foundSize) 
+            #input("Result------------")
+
 
         elif hiddenType == "nested":
             nestedMember = structData["hiddenNestedMember"]
@@ -1162,8 +1720,9 @@ class Reader:
                     memberNameAndPtr = [i for i in name][0]
                     memberName = memberNameAndPtr.split("->")[0]
                     if memberName == structMember:
-                        found, recvSize = self.findNestedMemberSize(name[memberNameAndPtr], nestedMember)
+                        found, recvSize, memberSize = self.findNestedMemberSize(name[memberNameAndPtr], nestedMember)
                         offset += recvSize
+                        memberSize = f"{hex(memberSize)}"
                         if found:
                             break
                 else:
@@ -1172,7 +1731,7 @@ class Reader:
         if not found:
             print(f"{red}Error: could not find member {structMember}, are you sure it's not nested member ? {rst}")
             sys.exit()
-        asm = self.hiddenStructAsm(varName, offset, hiddenVarName)
+        asm = self.hiddenStructAsm(varName, offset, hiddenVarName, memberSize)
         return asm
          
 
@@ -1214,27 +1773,47 @@ class Reader:
             elif rType == "string":
                 breakData[0] = {"jecxz":loopEnd}
         if rType == "int":
-            asm += f"  mov eax, dword ptr[{leftEbpValue}]\n"
-            asm += f"  cmp eax, {hex(int(right))}\n"
+            if x64:
+                asm += f"  mov rax, qword ptr[{leftEbpValue}]\n"
+                asm += f"  cmp rax, {hex(int(right))}\n"
+            else:
+                asm += f"  mov eax, dword ptr[{leftEbpValue}]\n"
+                asm += f"  cmp eax, {hex(int(right))}\n"
         elif rType == "hex":
-            asm += f"  mov eax, dword ptr[{leftEbpValue}]\n"
-            asm += f" cmp eax, {right}"
+            if x64:
+                asm += f"  mov rax, qword ptr[{leftEbpValue}]\n"
+                asm += f" cmp rax, {right}"
+            else:
+                asm += f"  mov eax, dword ptr[{leftEbpValue}]\n"
+                asm += f" cmp eax, {right}"
         elif rType == "string":
-            asm += f"  mov edi, dword ptr[{leftEbpValue}]\n"
+            if x64:
+                asm += f"  mov rdi, dword ptr[{leftEbpValue}]\n"
+            else:
+                asm += f"  mov edi, dword ptr[{leftEbpValue}]\n"
             rtnStringVal = self.pushString(right)
             asm += rtnStringVal
             strLen = self.sizeOf(f"sizeof({right})")
-            asm += f"  mov esi, ebx\n"
-            asm += f"  mov ecx, {strLen}\n"
+            if x64:
+                asm += f"  mov rsi, rbx\n"
+                asm += f"  mov rcx, {strLen}\n"
+            else:
+                asm += f"  mov esi, ebx\n"
+                asm += f"  mov ecx, {strLen}\n"
             asm += "  cld\n"
             asm += "  repe cmpsb\n"
         elif rType == "variable":
             for v in mainVars:
                 if v.Name == name:
-                    if "ebp" in right and v.Type == "unicode":
-                        asm += f"  mov edi, dword ptr[{leftEbpValue}]\n"
-                        asm += f"  mov esi, dword ptr[{right}]\n"
-                        asm += f"  mov ecx, {hex(v.Length)}\n"
+                    if any(reg in right for reg in ("ebp", "rbp")) and v.Type == "unicode":
+                        if x64:
+                            asm += f"  mov rdi, qword ptr[{leftEbpValue}]\n"
+                            asm += f"  mov rsi, qword ptr[{right}]\n"
+                            asm += f"  mov rcx, {hex(v.Length)}\n"
+                        else:
+                            asm += f"  mov edi, dword ptr[{leftEbpValue}]\n"
+                            asm += f"  mov esi, dword ptr[{right}]\n"
+                            asm += f"  mov ecx, {hex(v.Length)}\n"
                         asm += "  cld\n"
                         asm += "  repe cmpsb\n"
         else:
@@ -1246,7 +1825,10 @@ class Reader:
     def sysCallAsm(self):
         asm = ""
         asm += f"{lb}invokeSysCall{rst}:\n"
-        asm += f"  call {y}dword{rst} ptr fs:[0xc0]\n"
+        if x64:
+            asm += f"  syscall\n"
+        else:
+            asm += f"  call {y}dword{rst} ptr fs:[0xc0]\n"
         asm += f"  ret\n"
         asm += f"{lb}Begin{rst}:\n"
         return asm
@@ -1254,26 +1836,23 @@ class Reader:
     def checkSyscallNumAsm(self, modelNum):
         asm = ""
         for api, val in syscallsAndApiNum.items():
-            asm += f"  cmp edi, {val}\n"
+            if x64:
+                asm += f"  cmp rdi, {val}\n"
+            else:
+                asm += f"  cmp edi, {val}\n"
             syscallNum = readSysCalls(api, modelNum, False)
-            asm += f"  mov ebx, {syscallNum}\n"
-            asm += f"  cmovz ecx, ebx\n"
+            if x64:
+                asm += f"  mov rbx, {syscallNum}\n"
+                asm += f"  cmovz rdi, rbx\n"
+            else:
+                asm += f"  mov ebx, {syscallNum}\n"
+                asm += f"  cmovz ecx, ebx\n"
         asm += "  ret\n"
         return asm
 
     def GetSyscallNumber(self):
         asm = ""
         asm += f"jmp {lb}Begin{rst}\n"
-        asm += f"{lb}m_19041:{rst}\n"
-        asm += self.checkSyscallNumAsm("19041")
-        asm += f"{lb}m_19042:{rst}\n"
-        asm += self.checkSyscallNumAsm("19042")
-        asm += f"{lb}m_19043:{rst}\n"
-        asm += self.checkSyscallNumAsm("19043")
-        asm += f"{lb}m_19044:{rst}\n"
-        asm += self.checkSyscallNumAsm("19044")
-        asm += f"{lb}m_19045:{rst}\n"
-        asm += self.checkSyscallNumAsm("19045")
         asm += f"{lb}m_10240:{rst}\n"
         asm += self.checkSyscallNumAsm("10240")
         asm += f"{lb}m_10586:{rst}\n"
@@ -1292,36 +1871,46 @@ class Reader:
         asm += self.checkSyscallNumAsm("18362")
         asm += f"{lb}m_18363:{rst}\n"
         asm += self.checkSyscallNumAsm("18363")
-        asm += f"{lb}m_20348:{rst}\n"
-        asm += self.checkSyscallNumAsm("20348")
+        asm += f"{lb}m_19041:{rst}\n"
+        asm += self.checkSyscallNumAsm("19041")
+        asm += f"{lb}m_19042:{rst}\n"
+        asm += self.checkSyscallNumAsm("19042")
+        asm += f"{lb}m_19043:{rst}\n"
+        asm += self.checkSyscallNumAsm("19043")
+        asm += f"{lb}m_19044:{rst}\n"
+        asm += self.checkSyscallNumAsm("19044")
+        asm += f"{lb}m_19045:{rst}\n"
+        asm += self.checkSyscallNumAsm("19045")
         asm += f"{lb}m_22000:{rst}\n"
         asm += self.checkSyscallNumAsm("22000")
+        asm += f"{lb}m_20348:{rst}\n"
+        asm += self.checkSyscallNumAsm("20348")
         asm += f"{lb}m_22621:{rst}\n"
         asm += self.checkSyscallNumAsm("22621")
         asm += f"{lb}m_22631:{rst}\n"
         asm += self.checkSyscallNumAsm("22631")
         asm += f"{lb}m_25398:{rst}\n"
         asm += self.checkSyscallNumAsm("25398")
+        asm += f"{lb}m_26100:{rst}\n"
+        asm += self.checkSyscallNumAsm("26100")
+
         return asm
 
     def GetModelNumber(self):
         asm = ""
-        asm += f"""
-{lb}GetSysModelNumber{rst}:
-  mov edx, fs:[0x30]
+        asm += f"""{lb}GetSysModelNumber{rst}:
+"""
+        if x64:
+            asm += """  mov rax, gs:[0x60]
+  mov rax, [rax+0x120]
+  and rax, 0xffff
+"""     
+        else:
+            asm += f"""  mov edx, fs:[0x30]
   mov eax, [edx+0xAC]
   and eax, 0xFFFF
-  cmp eax, 19041
-  je m_19041
-  cmp eax, 19042
-  je m_19042
-  cmp eax, 19043
-  je m_19043
-  cmp eax, 19044
-  je m_19044
-  cmp eax, 19045
-  je m_19045
-  cmp eax, 10240
+  """
+        asm += """ cmp eax, 10240
   je m_10240
   cmp eax, 10586
   je m_10586
@@ -1339,145 +1928,244 @@ class Reader:
   je m_18362
   cmp eax, 18363
   je m_18363
-  cmp eax, 20348
-  je m_20348
+  cmp eax, 19041
+  je m_19041
+  cmp eax, 19042
+  je m_19042
+  cmp eax, 19043
+  je m_19043
+  cmp eax, 19044
+  je m_19044
+  cmp eax, 19045
+  je m_19045
   cmp eax, 22000
   je m_22000
+  cmp eax, 20348
+  je m_20348
   cmp eax, 22621
   je m_22621
   cmp eax, 22631
   je m_22631
   cmp eax, 25398
   je m_25398
+  cmp eax, 26100
+  je m_26100
   ret
 """
         return asm
 
     def stackSpace(self):
-        asm = "sub esp, 0x2000\n"
+        if x64:
+            asm = "push rbp\n"
+            asm += "mov rbp, rsp\n"
+            asm += "sub rsp, 0x500\n"
+        else:
+            asm = "push ebp\n"
+            asm += "mov ebp, esp\n"
+            asm += "sub esp, 0x500\n"
         return asm
     
     def stackEnd(self):
-        asm = "add esp, 0x2000\n"
+        if x64:
+            asm = "leave\n"
+            asm += "ret\n"
+        else:
+            asm = "leave\n"
+            asm += "ret\n"
+        return asm
+    
+    def ignoreRawBytes(self, asm):
+        assemblyOnly = '\n'.join(
+        line for line in asm.split('\n') if not line.strip().startswith(';;;'))
+        return assemblyOnly
+    def convertToMasmHex(self, assembly):
+        lines = assembly.split('\n')
+        converted_lines = []
+        for line in lines:
+            converted_line = re.sub(
+            r'0x([0-9a-fA-F]+)',
+            lambda m: f"0{m.group(1)}h" if m.group(1)[0].upper() in 'ABCDEF' else f"{m.group(1)}h",
+            line
+        )
+            #converted_line = re.sub(r'0x([0-9a-fA-F]+)', lambda m: f"{m.group(1)}h", line)
+            converted_lines.append(converted_line)
+        return '\n'.join(converted_lines)
+    
+    def formatAssemblyAndComments(self, code):
+        asm = ""
+        instrAndComments = []
+        for line in code.split("\n"):                                                                                     
+            line = line.replace(lb, "").replace(y, "").replace(o, "").replace(rst, "") 
+            try:
+                instr, comment = [part for part in (line.split(";", 1) + [""])[:2]]
+                instrAndComments.append({"instruction":instr, "comment":comment})
+            except Exception as e:
+                raise
+        longest_instruction_len = max(len(line["instruction"]) for line in instrAndComments) + len(o) + len(rst)
+        for line in instrAndComments:
+            try:
+                instruction = line["instruction"]
+                comment = line["comment"]
+                is_label = re.search(r".*:$", instruction)
+                padded_line = instruction.ljust(longest_instruction_len)
+                colored_instr = (f"{lb}{instruction}{rst}" if is_label 
+                           else f"{w}{instruction}{rst}")
+                colored_instr = colored_instr.ljust(longest_instruction_len)
+                if comment:
+                    comment = re.sub(
+                        r'(:\s*)(.*)',  # Capture group 1: colon + spaces, group 2: everything after
+                        lambda m: f"{m.group(1)}{g}{m.group(2)}{rst}",
+                        comment,
+                        count=1  # Only replace first occurrence
+                    )
+                    colored_instr += f"  ; {o}{comment}{rst}"
+                asm += f"{colored_instr}\n"
+            except Exception as e:
+                raise
         return asm
 
     def parseMain(self, lines):
         finalAssm = ""
-        for index, line in enumerate(lines):
-            varObj = Vars()
-            isValid,rName,rValue,rType,rSize,isAssigned = self.checkType(index, lines, line, varObj)
-            if isValid:
-                if rType == "struct" or rType == "structPtr":
-                    mainVars.append(varObj)
-                    asm = self.toAssembly("newstruct",rName, rValue, rSize)
-                    finalAssm += f"{asm}"
-                elif rType == "while" and rValue == "start":
-                    asm = self.parseWhileLoop("start", line, lines)
-                    finalAssm += asm
-                    loopDetected[0] = True
-                elif rType == "while" and rValue == "end":
-                    asm = self.parseWhileLoop("end", line, lines)
-                    finalAssm += asm
-                    loopDetected[0] = False
-                elif rType == "hiddenStruct":
-                    asm = self.hiddenStruct(rName, rValue)
-                    finalAssm += asm
-                elif rType == "if" and rValue != "end":
-                    op,left,right = self.ifStatement(rValue, line)
-                    leftType = self.getValueType(left)
-                    if leftType == "variable":
-                        leftValue = self.getVarValue(left)
-                    elif leftType == "int" or leftType == "string":
-                        print(f"Error: {line}\nLeft side cannot be a string or integer")
-                        sys.exit()
-                    rightType = self.getValueType(right)
-                    if rightType == "variable":
-                        rightValue = self.getVarValue(right)
-                        rightType = self.getValueType(rightValue)
-                    else:
-                        rightValue = right
-                    finalAssm += self.ifStatementAsm(op, left, rightValue, leftType, rightType, line, right)
-                elif rType == "if" and rValue == "end":
-                    ifDetected[0] = False
-                elif rType == "break":
-                    if loopDetected[0]:
-                        #loopDetected[0] = False
-                        if breakData[0] is not None:
-                            for op, jmpTo in breakData[0].items():
-                                finalAssm += self.recvBreak(op, jmpTo)
-                        else:
-                            print(f"{red}Error: loop and break detected, but break data not found")
-                            print(f"{w}Error line: {line}{rst}")
+        self.asmObj.assembly = ""
+        try:
+            for index, line in enumerate(lines):
+                varObj = Vars()
+                isValid,rName,rValue,rType,rSize,isAssigned = self.checkType(index, lines, line, varObj)
+                if isValid:
+                    if rType == "struct" or rType == "structPtr":
+                        mainVars.append(varObj)
+                        asm = self.toAssembly("newstruct",rName, rValue, rSize)
+                        finalAssm += f"{asm}"
+                    elif rType == "while" and rValue == "start":
+                        asm = self.parseWhileLoop("start", line, lines)
+                        finalAssm += asm
+                        loopDetected[0] = True
+                    elif rType == "while" and rValue == "end":
+                        asm = self.parseWhileLoop("end", line, lines)
+                        finalAssm += asm
+                        loopDetected[0] = False
+                    elif rType == "hiddenStruct":
+                        asm = self.hiddenStruct(rName, rValue)
+                        finalAssm += asm
+                    elif rType == "if" and rValue != "end":
+                        op,left,right = self.ifStatement(rValue, line)
+                        leftType = self.getValueType(left)
+                        if leftType == "variable":
+                            leftValue = self.getVarValue(left)
+                        elif leftType == "int" or leftType == "string":
+                            print(f"Error: {line}\nLeft side cannot be a string or integer")
                             sys.exit()
-                        breakDetected[0] = True
-                elif rType == "unicode":
-                    ptr, inStr = self.extractString(rValue)
-                    
-                    if ptr and inStr:
-                        hexStr = self.toHex(inStr)
-                        unicodeStr = self.toUnicode(hexStr)
-                        varObj.Name = ptr 
-                        varObj.Type = rType
-                        varObj.Value = inStr
-                        ucodeLen = len(unicodeStr)
-                        varObj.Length = ucodeLen 
-                        mainVars.append(varObj)
-                        finalAssm += self.initUnicode(ptr, inStr, ucodeLen, line)
-                elif rType == "variable" or rType == "varAdd" or rType == "varSub":
-                    varObj.Name = rName 
-                    varObj.Type = rType 
-                    varObj.Value = rValue
-                    varObj.assigned = isAssigned
-                    varObj.Size = rSize
-                    exist, assigned = self.isExist(rName)
-                    if not exist and isAssigned and rSize:
-                        mainVars.append(varObj)
-                    if not exist and not isAssigned:
-                        mainVars.append(varObj)
-                    if exist and not isAssigned and not rValue:
-                        print(f"[!] {red}Error{rst} Line: {lb+line+rst}")
-                        print(f"[!] {red}Error:{rst} cannot redefine variable {lb+rName+rst}")
-                        return
-                    if not exist and isAssigned and not rSize:
-                        print(f"[!] {red}Error{rst} Line: {lb+line+rst}")
-                        print(f"[!] {red}Error:{rst} Variable {lb+rName+rst} is not defined")
-                        return
-                    if exist and isAssigned and rValue:
-                        self.reAssign(rName, rValue)
-                    if rValue:
-                        if rType == "varAdd":
-                            assm = self.toAssembly("newVarAdd", rName,rValue,rSize)
-                        elif rType == "varSub":
-                            assm = self.toAssembly("newVarSub", rName,rValue,rSize)
+                        rightType = self.getValueType(right)
+                        if rightType == "variable":
+                            rightValue = self.getVarValue(right)
+                            rightType = self.getValueType(rightValue)
                         else:
-                            assm = self.toAssembly("newVar", rName,rValue,rSize)
-                        finalAssm += f"{assm}\n"
-                        currentStack = self.asmObj.stackStart
+                            rightValue = right
+                        finalAssm += self.ifStatementAsm(op, left, rightValue, leftType, rightType, line, right)
+                    elif rType == "if" and rValue == "end":
+                        ifDetected[0] = False
+                    elif rType == "break":
+                        if loopDetected[0]:
+                            #loopDetected[0] = False
+                            if breakData[0] is not None:
+                                for op, jmpTo in breakData[0].items():
+                                    finalAssm += self.recvBreak(op, jmpTo)
+                            else:
+                                print(f"{red}Error: loop and break detected, but break data not found")
+                                print(f"{w}Error line: {line}{rst}")
+                                sys.exit()
+                            breakDetected[0] = True
+                    elif rType == "unicode":
+                        ptr, inStr = self.extractString(rValue)
+                        
+                        if ptr and inStr:
+                            hexStr = self.toHex(inStr)
+                            unicodeStr = self.toUnicode(hexStr)
+                            varObj.Name = ptr 
+                            varObj.Type = rType
+                            varObj.Value = inStr
+                            ucodeLen = len(unicodeStr)
+                            varObj.Length = ucodeLen 
+                            mainVars.append(varObj)
+                            finalAssm += self.initUnicode(ptr, inStr, ucodeLen, line)
+                    elif rType == "variable" or rType == "varAdd" or rType == "varSub":
+                        varObj.Name = rName 
+                        varObj.Type = rType 
+                        varObj.Value = rValue
+                        varObj.assigned = isAssigned
+                        varObj.Size = rSize
+                        exist, assigned = self.isExist(rName)
+                        if not exist and isAssigned and rSize:
+                            mainVars.append(varObj)
+                        if not exist and not isAssigned:
+                            mainVars.append(varObj)
+                        if exist and not isAssigned and not rValue:
+                            print(f"[!] {red}Error{rst} Line: {lb+line+rst}")
+                            print(f"[!] {red}Error:{rst} cannot redefine variable {lb+rName+rst}")
+                            return
+                        if not exist and isAssigned and not rSize:
+                            print(f"[!] {red}Error{rst} Line: {lb+line+rst}")
+                            print(f"[!] {red}Error:{rst} Variable {lb+rName+rst} is not defined")
+                            return
+                        if exist and isAssigned and rValue:
+                            self.reAssign(rName, rValue)
+                        if rValue:
+                            if rType == "varAdd":
+                                assm = self.toAssembly("newVarAdd", rName,rValue,rSize)
+                            elif rType == "varSub":
+                                assm = self.toAssembly("newVarSub", rName,rValue,rSize)
+                            else:
+                                assm = self.toAssembly("newVar", rName,rValue,rSize)
+                            finalAssm += f"{assm}\n"
+                            currentStack = self.asmObj.stackStart
 
-                elif rType == "functionCall":
-                    varObj.Name = rName 
-                    varObj.Type = rType 
-                    varObj.Value = rValue
-                    mainVars.append(varObj)
-                    assm = self.toAssembly("funcCall", rName,rValue,"None",varObj.assignedTo)
-                    finalAssm += f"{assm}\n"
-                elif rType == "structMember":
-                    varObj.Name = rName 
-                    varObj.Type = rType 
-                    varObj.Value = rValue
-                    mainVars.append(varObj)
-                    assm = self.toAssembly("structMember",rName,rValue,"None",varObj.assignedTo)
-                    finalAssm += assm
+                    elif rType == "functionCall":
+                        varObj.Name = rName 
+                        varObj.Type = rType 
+                        varObj.Value = rValue
+                        mainVars.append(varObj)
+                        assm = self.toAssembly("funcCall", rName,rValue,"None",varObj.assignedTo)
+                        finalAssm += f"{assm}\n"
+                    elif rType == "structMember":
+                        varObj.Name = rName 
+                        varObj.Type = rType 
+                        varObj.Value = rValue
+                        mainVars.append(varObj)
+                        assm = self.toAssembly("structMember",rName,rValue,"None",varObj.assignedTo)
+                        finalAssm += assm
+            #print(f"{self.asmObj.dotData}")
+        except Exception as e:
+            raise
         self.asmObj.assembly += self.stackSpace()
         self.asmObj.assembly += self.GetSyscallNumber()
         self.asmObj.assembly += self.GetModelNumber()
         self.asmObj.assembly += self.sysCallAsm()
         self.asmObj.assembly += finalAssm
         self.asmObj.assembly += self.stackEnd()
+        if nasm:
+            if dataSection:
+                self.asmObj.nasm += self.assemblerDataSection()
+            self.asmObj.nasm += self.asmObj.assembly
+            nasmAsmTemp = self.asmObj.nasm
+            nasmAsmTemp = self.ignoreRawBytes(nasmAsmTemp)
+            self.asmObj.nasm = nasmAsmTemp.replace("ptr", "")
+            self.asmObj.nasm = self.formatAssemblyAndComments(self.asmObj.nasm)
+            noCommentAsm = self.removeAsmComments(self.asmObj.nasm)
+            shellcode = self.asm2Shellcode(noCommentAsm)
+            self.asmObj.shellcode = shellcode
+            
+        elif masm:
+            if dataSection:
+                self.asmObj.nasm += self.assemblerDataSection()
+            self.asmObj.masm += self.ignoreRawBytes(self.asmObj.assembly)
+            self.asmObj.masm = self.formatAssemblyAndComments(self.asmObj.masm)
+            noCommentAsm = self.removeAsmComments(self.asmObj.masm)
+            shellcode = self.asm2Shellcode(noCommentAsm)
+            self.asmObj.shellcode = shellcode
         finalAssembly.append(self.asmObj)
         noCommentAsm = self.removeAsmComments(self.asmObj.assembly)
-        shellcode = self.Asm2Opcode(noCommentAsm)
-        self.asmObj.shellcode = shellcode
+        #shellcode = self.asm2Shellcode(noCommentAsm)
+        #self.asmObj.shellcode = shellcode
 
     def readMain(self,lines):
         code = None
@@ -1492,7 +2180,7 @@ class Reader:
                         code = mainLines[2:num]
                         break
         except Exception as e:
-            print("Error: readMain ->", e)
+            raise
         if code:
             self.parseMain(code)
 
@@ -1517,25 +2205,24 @@ class Reader:
             "LARGE_INTEGER":0x8}
 
         struct = struct[1:-1]
-        types = constTypes
+        types = dataTypes if x64 else dataTypes_x86
         try:
             for stLine in struct:
-                size = 0
+                memSize = 0
                 stLine = stLine.lstrip()
-                dType = stLine.split(" ")[0]
+                dType = stLine.strip().split(" ")[0]
                 if dType in types:
-                    memberName = stLine.split(" ")[-1].strip()
+                    memberName = stLine.strip().split(" ")[-1]
                     memberName = memberName.replace(";", "")
                     possibleArr = re.search(r'\[(\d+)\]', memberName)
                     if possibleArr:
                         arrSize = possibleArr.group(1)
-                        size += (types[dType] * int(arrSize))
+                        memSize += (types[dType] * int(arrSize))
                     else:
-                        size += types[dType]
-                    memDict = {hex(size):memberName}
+                        memSize += types[dType]
+                    memDict = {hex(memSize):memberName}
                     structObj.Members.append(memDict)
                 else:
-                    
                     for st in structs:
                         if st.Name in dType:
                             totalStructSize = 0
@@ -1547,11 +2234,11 @@ class Reader:
                             memDict = {hex(totalStructSize):{dName+"->"+st.Name:st.Members[::-1]}}
                             structObj.Members.append(memDict)
         except Exception as e:
-            print(e)
+            raise
 
     def structFound(self,struct, structObj, structName, structPtr):
         struct = struct[1:-1]
-        types = dataTypes
+        types = dataTypes if x64 else dataTypes_x86
         size = 0
         structRev = struct[::-1]
         try:
@@ -1580,7 +2267,7 @@ class Reader:
                             memDict = {hex(4):dName+"->"+dType}
                             structObj.Members.append(memDict)
         except Exception as e:
-            print(e)
+            raise
         structObj.totalSize = size
 
 
@@ -1617,7 +2304,7 @@ class Reader:
                 converted.append(Hex)
             return converted
         except Exception as e:
-            print("Error:", e)
+            raise
 
     def extractString(self, line):
         getString = re.search('InitUnicodeStr\((.*),\s*(.*)\)', line)
@@ -1635,35 +2322,63 @@ class Reader:
         print("{} {} {}".format(dbg, c + text+ rst, red + Type + rst))
 
     def parser(self, lines):
-        for count, line in enumerate(lines): 
-            if "typedef" in line and "struct" in line:
-                self.structObj = Structs()
-                structData = self.getStructData(lines[count:])
-                structName, structPtr = self.getStructNameAndPointer(structData)
-                self.structObj.Name = structName
-                self.structObj.Pointer = structPtr 
-                self.structObj.Lines = structData 
-                structs.append(self.structObj)
-                self.structFound(self.structObj.Lines, self.structObj, structName, structPtr)
-                continue
-            elif "hidden" in line and "struct" in line:
-                self.structObj = Structs()
-                structData = self.getStructData(lines[count:])
-                structName, structPtr = self.getStructNameAndPointer(structData)
-                self.structObj.Name = structName
-                self.structObj.Pointer = structPtr 
-                self.structObj.Lines = structData 
-                hiddenstructs.append(self.structObj)
-                self.hiddenStructFound(self.structObj.Lines, self.structObj, structName, structPtr)
-            elif "<MAIN>" in line:
-                self.readMain(lines[count:])
+        try:
+            for count, line in enumerate(lines): 
+                if "typedef" in line and "struct" in line:
+                    self.structObj = Structs()
+                    structData = self.getStructData(lines[count:])
+                    structName, structPtr = self.getStructNameAndPointer(structData)
+                    self.structObj.Name = structName
+                    self.structObj.Pointer = structPtr 
+                    self.structObj.Lines = structData 
+                    structs.append(self.structObj)
+                    self.structFound(self.structObj.Lines, self.structObj, structName, structPtr)
+                    continue
+                elif "hidden" in line and "struct" in line:
+                    self.structObj = Structs()
+                    structData = self.getStructData(lines[count:])
+                    structName, structPtr = self.getStructNameAndPointer(structData)
+                    self.structObj.Name = structName
+                    self.structObj.Pointer = structPtr 
+                    self.structObj.Lines = structData 
+                    hiddenstructs.append(self.structObj)
+                    self.hiddenStructFound(self.structObj.Lines, self.structObj, structName, structPtr)
+                elif "<MAIN>" in line:
+                    self.readMain(lines[count:])
+            return True
+        except Exception as e:
+            raise
+            return False
 
     def readFile(self):
         allLines = []
         with open(self.file, "r") as content:
             for line in content:
                 allLines.append(line)
-        self.parser(allLines)
+
+        return self.parser(allLines)
+
+
+def show_help():
+    table = Table(title="\nAvailable Commands", 
+                 show_header=True, 
+                 header_style="bold magenta",
+                 box=box.ROUNDED,
+                 border_style="dim blue")
+    
+    table.add_column("Command", style="cyan", width=30)
+    table.add_column("Description", style="green")
+
+    # Configuration Group
+    table.add_row("  set arch <x64|x86>", "Switch between 32/64-bit modes")
+    table.add_row("  set assembler <masm|nasm>", "Select assembler syntax")
+    # Generation Group
+    table.add_row("  generate shellcode", "Output raw bytes")
+    table.add_row("  generate assembly", "Output assembly instructions")
+    table.add_row("  load <filename>", "Load custom C file")
+    table.add_row("  help", "Print this help menu")
+    console.print(table)
+
 
 def help():
     allText = ""
@@ -1686,132 +2401,285 @@ def help():
 
 
 def readSysCalls(syscall_name, model_number=None, find_api_num=None):
-    file_path = "syscallslist.txt"
-    data_dict = {}
-    apis_and_nums = {}
-    with open(file_path, newline='') as csvfile:
-        reader = csv.reader(csvfile, delimiter='\t')
-        header = next(reader)
-        for row in reader:
-            service_name = row[1]
-            service_id = row[0]
-            api_num_dict = {service_name:service_id}
-            apis_and_nums.update(api_num_dict)
-            values = row[2:]  # Values start from index 2 onward
-            data_dict[service_name] = {}
-            for i, value in enumerate(values):
-                column_number = header[i+2]  # +2 to skip # and ServiceName columns
-                if value.strip():
-                    data_dict[service_name][column_number] = value
-                else:
-                    data_dict[service_name][column_number] = None
-    if not find_api_num:
-        if syscall_name in data_dict and model_number in data_dict[syscall_name]:
-            value = data_dict[syscall_name][model_number]
-            return hex(int(value, 16))
+    csv_file = "syscallslist.csv"
+    with open(csv_file, 'r') as file:
+        reader = csv.reader(file)
+        headers = next(reader)
+        try:
+            for row in reader:
+                api_num = row[0]
+                ntApiName = row[1]
+                if ntApiName == syscall_name:  # Check System call column
+                    if find_api_num:
+                        return hex(int(api_num))  # Return the line number
+                    else:
+                        col_index = headers.index(model_number)
+                        return row[col_index]  # Return the syscall number in hex
+        except Exception as e:
+            raise
+            return None  # Model number not found
+    
+    return None  # Syscall not found
+
+
+def readSysCalls2(syscall_name, model_number=None, find_api_num=None):
+    try:
+        file_path = "syscallslist.txt"
+        data_dict = {}
+        apis_and_nums = {}
+        with open(file_path, newline='') as csvfile:
+            reader = csv.reader(csvfile, delimiter='\t')
+            header = next(reader)
+            for row in reader:
+                service_name = row[1]
+                service_id = row[0]
+                api_num_dict = {service_name:service_id}
+                apis_and_nums.update(api_num_dict)
+                values = row[2:]  # Values start from index 2 onward
+                data_dict[service_name] = {}
+                for i, value in enumerate(values):
+                    column_number = header[i+2]  # +2 to skip # and ServiceName columns
+                    if value.strip():
+                        data_dict[service_name][column_number] = value
+                    else:
+                        data_dict[service_name][column_number] = None
+        if not find_api_num:
+            if syscall_name in data_dict and model_number in data_dict[syscall_name]:
+                value = data_dict[syscall_name][model_number]
+                return hex(int(value, 16))
+            else:
+                return None
         else:
-            return None
-    else:
-        api_num = apis_and_nums[syscall_name]
-        return hex(int(api_num))
+            api_num = apis_and_nums[syscall_name]
+            return hex(int(api_num))
+    except Exception as e:
+        raise
+
+
+def getAssemblerCmd():
+    nasm_command = [
+    "nasm",
+    "-f", "win64",
+    "-o", "main.obj",
+    "main.asm"
+    ]
+    return nasm_command
+
+def generateBinary(rawAssembly):
+    writeAsmToFile(rawAssembly)
+    assemblyCmd = getAssemblerCmd()
+    binFileName = input(f"{c}[*]{rst} Enter file name: ")
+    if not binFileName.lower().endswith(".exe"):
+        binFileName += ".exe"
+    compileCmd = getCompilerCmd(binFileName)
+    console.print("[bold cyan]Assembling...[/bold cyan]")
+    run_with_progress("run", assemblyCmd)
+    console.print("[bold cyan]Compiling...[/bold cyan]")
+    if run_with_progress("run", compileCmd):
+        output_path = os.path.join("bin", binFileName)
+        print(f"File saved to {g}{output_path}{rst}")
+
+def getCompilerCmd(outputFileName):
+    os.makedirs("bin", exist_ok=True)
+    full_output_path = os.path.join("bin", outputFileName)
+    mingw_command = [
+    "x86_64-w64-mingw32-gcc",
+    "-o", full_output_path,
+    "main.obj",
+    "-lkernel32",
+    "-mconsole",
+    "-nostartfiles"
+    ]
+    return mingw_command
+
+def writeAsmToFile(asmCode):
+    nasm_syntax = """
+global _start
+section .text
+_start:
+    """
+    try:
+        with open("main.asm", "w") as f:
+            #f.write(nasm_syntax)
+            f.write(asmCode)
+        return True
+    except:
+        return False
 
 def cli():
-    checkMark = u'\u2713'
-    crossMark = u'\u2715'
     completer = ContextCompleter()
     readline.set_completer(completer.complete)
     system_name = platform.system()
+    global x64
+    global masm 
+    global nasm
+    global dataSection
     if system_name == "Darwin":
         readline.parse_and_bind('bind ^I rl_complete')
-    elif system_name == "Linux":
+    elif system_name == "Linux":    
         readline.parse_and_bind('tab: complete')
-    
+    readerObject = None
     while True:
         try:
-            c = input(f"{brblk}S{o}I{y}L{o}O{brblk}>{rst} ")
-            if c == "":
+            fullCmd = input(f"{brblk}S{o}I{y}L{o}O{brblk}>{rst} ")
+            if not fullCmd.strip():
                 continue
             else:
-                cmdLine = c.split(" ")
+                cmdLine = fullCmd.split(" ")
                 numArgs = len(cmdLine)
                 if numArgs == 2:
                     cmd = cmdLine[0]
-                    if cmd.lower() in "load":
+                    if cmd.lower() == "load":
                         filePath = cmdLine[1]
                         try:
+                            console.print("[bold cyan]Loading file...[/bold cyan]")
                             r = Reader(filePath)
-                            r.readFile()
-                            print(f"{w}File loaded.{rst}")
-                            
+                            readerObject = r
+                            run_with_progress("readfile", r)
                         except Exception as e:
                             print(f"{w}{e}{rst}")
-                    elif cmd.lower() in "print":
+                    elif cmd.lower() == "generate":
                         cType = cmdLine[1]
-                        if cType in "assembly":
-                            print("\n")
-                            print(Reader.asmObj.assembly)
-                        elif cType in "shellcode":
+                        if cType == "assembly":
+                            if masm:
+                                if len(Reader.asmObj.masm) < 1:
+                                    print(f"{y}[!]{rst} {c}Please load a file first")
+                                else:
+                                    print("\n")
+                                    print(Reader.asmObj.masm)
+                            elif nasm:
+                                if len(Reader.asmObj.nasm) < 1:
+                                    print(f"{y}[!]{rst} {c}Please load a file first")
+                                else:
+                                    print("\n")
+                                    print(Reader.asmObj.nasm)
+                            else:
+                                print("\n")
+                                print(Reader.asmObj.assembly)
+
+                        elif cType == "shellcode":
                             print("\n")
                             print(Reader.asmObj.shellcode)
+                        elif cType == "binary":
+                            if len(Reader.asmObj.nasm) < 1:
+                                print(f"{y}[!]{rst} {c}Please load a file first")
+                            else:
+                                if nasm:
+                                    rawAssembly = readerObject.removeAsmComments(Reader.asmObj.nasm)
+                                    generateBinary(rawAssembly)
+                                else:
+                                    print(f"{y}[!]{rst} {c}Sorry, only NASM works for binary generation.")
+                                    
                         else:
-                            print(f"{w}Invalid command{rst}")
+                            print(f"{red}[!]{rst} Invalid command")
+                    elif cmd.lower() == "enable" and cmdLine[1] == "data":
+                        if dataSection:
+                            print(f"{c}[*]{rst} Data section already enabled")
+                        else:
+                            dataSection = True
+                            print(f"{c}[*]{rst} Data section enabled")
+
                     else:
-                        print(f"{w}Invalid command{rst}")
+                        print(f"{red}[!]{rst} Invalid command")
                         continue
+                elif numArgs == 3:
+                    cmd = cmdLine[0]
+                    if cmd.lower() in "set":
+                        cType = cmdLine[1]
+                        if cType in "arch":
+                            arch = cmdLine[2]
+                            if arch == "x64":
+                                x64 = True
+                                print(f"{c}[*]{rst} Arch set to {g}x64{rst}")
+                            elif arch == "x86":
+                                print(f"{c}[*]{rst} Arch set to {g}x86{rst}")
+                            else:
+                                print(f"{red}[!]{rst} Invalid arch, defaulting to {g}x86{rst}")
+                        elif cType in "assembler":
+                            flavor = cmdLine[2]
+                            if flavor == "masm":
+                                if masm:
+                                    nasm = False
+                                    print(f"{c}[*]{rst} Assembler already set to {g}MASM{rst}")
+                                else:
+                                    masm = True
+                                    nasm = False
+                                    print(f"{c}[*]{rst} Assembler set to {g}MASM{rst}")
+                            elif flavor == "nasm":
+                                if nasm:
+                                    masm = False
+                                    print(f"{c}[*]{rst} Assembler already set to {g}NASM{rst}")
+                                else:
+                                    nasm = True
+                                    masm = False
+                                    print(f"{c}[*]{rst} Assembler set to {g}NASM{rst}")
+                            else:
+                                print(f"{red}[!]{rst} Invalid Assembler, type help for more options")
+
                 elif numArgs == 1:
-                    if c == "quit" or c == "exit":
+                    if fullCmd in ["exit", "quit"]:
                         print(f"{w}Exiting..{rst}")
                         break
-                    elif c == "help":
-                        help()
+                    elif fullCmd == "help":
+                        show_help()
                     else:
-                        print(f"{w}Invalid command")
+                        print(f"{red}[!]{rst} Invalid command")
                 else:
-                    print(f"{w}Invalid command")
+                    print(f"{red}[!]{rst} Invalid command")
 
         except KeyboardInterrupt:
             print(f"\n[!] Closing..")
             break
+        except Exception as e:
+            raise
 
+
+def banner2():
+    
+    T = """
+[bold cyan] ███████╗██╗  ██╗███████╗██╗     ██╗     ███████╗██╗██╗      ██████╗ 
+ ██╔════╝██║  ██║██╔════╝██║     ██║     ██╔════╝██║██║     ██╔═══██╗
+ ███████╗███████║█████╗  ██║     ██║     ███████╗██║██║     ██║   ██║
+ ╚════██║██╔══██║██╔══╝  ██║     ██║     ╚════██║██║██║     ██║   ██║
+ ███████║██║  ██║███████╗███████╗███████╗███████║██║███████╗╚██████╔╝
+ ╚══════╝╚═╝  ╚═╝╚══════╝╚══════╝╚══════╝╚══════╝╚═╝╚══════╝ ╚═════╝ [/bold cyan][bold yellow]
+    ╔══════════════════════[white] SHELLSILO [/]══════════════════════╗
+    ║  [bold cyan]0x48 0x89 0xFE[/bold cyan] [bold red]0x0F 0x05[/bold red] │ [dim]v1.0[/dim] │ [white]Tarek Ahmed ☢️[/]      ║
+    ╚═══════════════════════════════════════════════════════╝[/bold yellow]"""
+    console.print(T, end="")
 def banner():
 
     T = f"""
-      {brblk}____  _   _ _____ _     _       {brblk}____ ___ _     ___  
-     {o}/ ___|| | | | ____| |   | |     {o}/ ___|_ _| |   / _ \ 
-     {brblk}\___ \| |_| |  _| | |   | |     {brblk}\___ \| || |  | | | |
-      {y}___) |  _  | |___| |___| |___   {y}___) | || |__| |_| |
-     {o}|____/|_| |_|_____|_____|_____| {o}|____/___|_____\___/ 
-                                                          
-                         {y}.@@@@@@@.                         
-                   .=@@#:::::::::::#@@=                    
-                 .@@:::::::::::::::::::@@.                 
-               =@:::#*:::::::::::::::*#:::@=               
-              @-::{brblk}@@@@@{y}:::::::::::::%{brblk}@@@@{y}::-@              
-            .@::#{brblk}@@@@@@@{y}-::::::::::{brblk}@@@@@@@{y}%::@.            
-            @::{brblk}@@@@@@@@@@{y}:::::::::{brblk}@@@@@@@@@@{y}::@.           
-           @::{brblk}@@@@@@@@@@@@:::::::{brblk}@@@@@@@@@@@@{y}::@.          
-          @@::{brblk}@@{o}PUSH EAX{brblk}@@@{y}:::::{brblk}@@@{o}PUSH EBX{brblk}@@{y}::@@          
-          @::{brblk}@@@@@@@@@@@@{y}::{brblk}@@@@@{y}::{brblk}@@@@@@@@@@@@{y}::@          
-          @::{brblk}@@@@@@@@@@@{y}::{brblk}@@@@@@@{y}::{brblk}@@@@@@@@@@@{y}::@          
-          @:::::::::::::::{brblk}@@@@@@@{y}:::::::::::::::@          
-          @::::::::::::::::{brblk}@@@@@{y}::::::::::::::::@          
-          @@:::::::::::::::::::::::::::::::::::@@          
-           @::::::::::::::{brblk}@@@@@@@{y}::::::::::::::@.          
-            @::::::::::::{brblk}@@@@@@@@@{y}::::::::::::@            
-            .@::::::::::{brblk}@@@@@@@@@@@{y}-:::::::::@.            
-             .@-::::::-{brblk}@{o}@{brblk}@@@@@@@@@{o}@{brblk}@{y}=::::::-@              
-               =@::::*{brblk}@@@{o}:SYSCALL:{brblk}@@@{y}*:::-@+               
-                 .@@::::{brblk}@@@@@@@@@@@{y}::::@@.                 
-                    =@@#:::::::::::#@@+                    
-                         .@@@@@@@.
-                         {rst}
-                                                           
+                        {y}@@@@@@@@@
+                    @@@@@@@@@@@@@@@@@
+                  @@@@@@@@@@@@@@@@@@@@@@@
+                 @@@{brblk}:::{y}@@@@@@@@@@@@@{brblk}:::{y}@@@
+               @@@@{brblk}:::::{y}@@@@@@@@@@@{brblk}:::::{y}@@@@
+              @@@{brblk}::::::::{y}@@@@@@@@@{brblk}::::::::{y}@@@
+             @@@{brblk}::::::::::{y}@@@@@@@{brblk}::::::::::{y}@@@
+             @@@{brblk}:{o}PUSH RAX{brblk}::{y}@@@@@{brblk}::{o}PUSH RBX{brblk}:{y}@@@
+             @@{brblk}:::::::::::{y}@{brblk}:::::{y}@{brblk}:::::::::::{y}@@
+            @@@{brblk}::::::::::{y}@@{brblk}:::::{y}@@{brblk}::::::::::{y}@@@
+             @@@@@@@@@@@@@@{brblk}:::::{y}@@@@@@@@@@@@@@
+             @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+             @@@@@@@@@@@@@{brblk}:::::::{y}@@@@@@@@@@@@@
+              @@@@@@@@@@@{brblk}:::::::::{y}@@@@@@@@@@@
+               @@@@@@@@@{brblk}:::::::::::{y}@@@@@@@@@
+                 @@@@@@{brblk}:::{o}SYSCALL{brblk}:::{y}@@@@@@
+                  @@@@@{brblk}:::::::::::::{y}@@@@@
+                     @@@@@@@@@@@@@@@@@
+                        @@@@@@@@@
 """
     print(T)
 
 def main():
+    banner2()
     banner()
     cli()
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception:
+        import traceback
+        traceback.print_exc()
