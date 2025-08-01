@@ -46,7 +46,7 @@ The most practical template of the files provided is the ntwrt.c file.
 https://github.com/nixpal/ProcInjectSyscall/blob/main/shellcode.c#L222
 * Finally, the code will create a new thread of that copied buffer using NtCreateThreadEx.
 
-![Alt text](https://github.com/nixpal/shellsilo/blob/main/images/main.png)
+![Alt text](https://github.com/nixpal/shellsilo/blob/main/images/banner.png)
 
 ![Alt text](https://github.com/nixpal/shellsilo/blob/main/images/output_sample.png)
 
