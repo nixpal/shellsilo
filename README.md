@@ -48,14 +48,6 @@ https://github.com/nixpal/ProcInjectSyscall/blob/main/shellcode.c#L222
 
 ![Alt text](https://github.com/nixpal/shellsilo/blob/main/images/banner.png)
 
-![Alt text](https://github.com/nixpal/shellsilo/blob/main/images/output_sample.png)
-
-![Alt text](https://github.com/nixpal/shellsilo/blob/main/images/help.png)
-
-![Alt text](https://github.com/nixpal/shellsilo/blob/main/images/shellcode.png)
-
-
-
 
 [![Demo](https://img.shields.io/badge/Watch%20Demo-blue?style=for-the-badge)](https://www.youtube.com/watch?v=WVUoo6X5RaU "ShellSilo Demo")
 
