@@ -22,6 +22,8 @@ SHELLSILO has been tested on two different Windows 10 models, and Windows 11.
 ### Installation
 * pip3 install keystone-engine
 
+### Manual
+📘 [View Full Syntax Manual](manual.md)
 
 
 SHELLSILO supports the following:
