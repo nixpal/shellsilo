@@ -1,200 +1,213 @@
-🐚 ShellSilo Manual
+# Tool Documentation
 
-A guide to ShellSilo's custom C-like syntax for generating syscall shellcode.
+## Control Structures
 
-📌 Table of Contents
+### If Statement
 
-🔁 Control Flow
-
-If Statement
-
-While Loop
-
-🏗 Struct Definitions
-
-🔧 Main Function
-
-🔣 Variable Definitions
-
-📝 Variable Assignment
-
-📦 Structure Instances
-
-🧱 Struct Member Assignment
-
-📞 Function Calls
-
-📥 Returned Structures
-
-🔍 Accessing Returned Values
-
-🔠 Unicode String Initialization
-
-🧵 String Variable Assignment
-
-🔐 Special Constants and Functions
-
-🔁 Control Flow
-
-✅ If Statement
-
+```C
 if (var1 == <var2/string/int/hex>) {
-    do something
+    // Code to execute
     break;
 }
+```
 
-The right-hand side of the condition must be a variable, string, integer, or hex value.
 
-♾ While Loop
+Notes:
 
+    Right side must be a variable, string, integer, or hex value
+
+    Currently only works inside infinite loops
+
+Infinite While Loop
+
+```C
 while(TRUE) {
-    if (var1 == <var2/string/int/hex>) {
-        do something
+    if (<condition>) {
+        // Code to execute
         break;
     }
 }
+```
+Notes:
 
-Only infinite while(TRUE) loops are currently supported.
+    Only infinite loops (while(TRUE)) are supported
 
-if conditions are only valid inside while(TRUE) loops.
+    if statements must be nested inside loops (for now)
 
-🏗 Struct Definitions
+Data Structures
+Defining Structs
 
+
+```C
 typedef struct <structure_name> {
-    type member1;
-    type member2;
-    ...
+    <type> member1;
+    <type> member2;
 } <struct_alias>, *<optional_pointer>;
+```
+Example 1: Unicode String
 
-Example 1:
 
+```C
 typedef struct _UNICODE_STRING {
     USHORT Length;
     USHORT MaximumLength;
     PWSTR  Buffer;
 } UNICODE_STRING, *PUNICODE_STRING;
+```
 
-Example 2:
 
+Example 2: Object Attributes
+```C
 typedef struct _OBJECT_ATTRIBUTES {
-    ULONG Length;
-    HANDLE RootDirectory;
+    ULONG           Length;
+    HANDLE          RootDirectory;
     PUNICODE_STRING ObjectName;
-    ULONG Attributes;
-    PVOID SecurityDescriptor;
-    PVOID SecurityQualityOfService;
+    ULONG           Attributes;
+    PVOID           SecurityDescriptor;
+    PVOID           SecurityQualityOfService;
 } OBJECT_ATTRIBUTES;
+```
+Main Function
 
-🔧 Main Function
 
+```c
 <MAIN> {
-    line 1;
-    line 2;
-    ...
+    // Code lines
+    line1;
+    line2;
 }
-
-Use <MAIN> instead of int main()
-
-🔣 Variable Definitions
-
-<type> <variable_name> = <var | NULL | int | string | constant>;
-
-Example:
+```
+Note: Starts with \<MAIN\> instead of C-style int main()
+Variables
+Definition & Assignment
+```C
+<type> <name> = <value>;  // e.g., NULL, string, hex, int
+```
+Examples:
+```C
 
 PVOID remoteAddress = NULL;
 DWORD DesiredAccess = PROCESS_ALL_ACCESS;
 DWORD ProcInfo = 0x5;
+mystring = "Hello World";
+```
+Notes:
 
-📝 Variable Assignment
+    Types must match those in constants.py
 
-BaseAddress = 0;
-BaseAddress += 1;
-BaseAddress -= 1;
-mystring = "Hello world";
+    Custom types can be added to constants.py with correct sizes
 
-📦 Structure Instances
+Struct Member Access
+```C
 
-UNICODE_STRING NtImagePath;
-CLIENT_ID clientId = NULL;
-
-🧱 Struct Member Assignment
+<struct_instance>.<member> = <value>;
+```
+Examples:
+```C
 
 clientId.UniqueThread = NULL;
 ObjectAttributes.Length = sizeof(OBJECT_ATTRIBUTES);
+```
+Functions
+Calling Functions
 
-📞 Function Calls
+Single-line:
+```C
+<function>(param1, param2);
+```
+Multi-line:
+```C
 
-FunctionName(param1, param2, param3);
-FunctionName(
+<function>(
     param1,
-    param2,
-    param3
+    param2
 );
+```
+Example:
+```C
+NtAllocateVirtualMemory(
+    hProcess,
+    &BaseAddress,
+    ZeroBits,
+    &RegionSize,
+    MEM_COMMIT | MEM_RESERVE,
+    PAGE_EXECUTE_READWRITE
+);
+```
+Returned Structures
+Definition
+```C
+
+hidden struct <name> {
+    <members>;
+} <alias>;
+```
+
 
 Example:
-
-NtAllocateVirtualMemory(hProcess, &BaseAddress, ZeroBits, &RegionSize,
-    MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
-
-📥 Returned Structures
+```C
 
 hidden struct _SYSTEM_PROCESS_INFORMATION {
-    type member1;
-    type member2;
-};
+    ULONG Offset;
+    PVOID ImageName;
+} SYSTEM_PROCESS_INFORMATION;
+```
 
-Use hidden struct for returned structures from syscall functions.
 
-🔍 Accessing Returned Values
+Accessing Nested Members
+```C
 
-var = (STRUCT_NAME)returned_ptr->Member->NestedMember;
-
+<var> = (<struct_type>)<pointer>->member->nested_member;
+```
 Example:
+```C
 
 imageName = (SYSTEM_PROCESS_INFORMATION)newBaseAddress->ImageName->Buffer;
 
-🔠 Unicode String Initialization
+Strings
+Unicode Initialization
+```
 
-InitUnicodeStr(<variable>, "string");
+```C
+InitUnicodeStr(<variable>, "<string>");
+```
+Examples:
+```C
+InitUnicodeStr(processName, "chrome.exe");
+InitUnicodeStr(path, "C:\\Windows\\system32");
+```
+String Assignment
+```C
+PVOID <var> = "<string>";
+```
+
 
 Example:
+```C
 
-InitUnicodeStr(processName, "C:\\Windows\\System32\\calc.exe");
+PVOID buffer = "Hello World";
+```
+Special Constants & Functions
+sizeof()
 
-🧵 String Variable Assignment
+Gets size of a variable/type
 
-PVOID var = "Hello world!";
-
-🔐 Special Constants and Functions
-
-✅ Functions
-
-sizeof(...);
-
-Get size of a structure or string.
-
-🏷 Constants
-
-MEM_COMMIT
-
-MEM_RESERVE
-
+Examples:
+```c
+ULONG size = sizeof(OBJECT_ATTRIBUTES);
+ULONG strSize = sizeof("example");
+```
+Constants
+```
+MEM_COMMIT      
+MEM_RESERVE      
 MEM_RELEASE
-
-PAGE_EXECUTE_READWRITE
-
-PAGE_READWRITE
-
-PAGE_READONLY
-
+PAGE_READWRITE  
+PAGE_READONLY    
 PROCESS_ALL_ACCESS
-
 THREAD_ALL_ACCESS
-
-False, True
-
+True            
+False            
 NTSTATUS
-
 NULL
-
-🛠️ ShellSilo is evolving — future versions will expand support for more control flow constructs and struct/array operations.
+```
