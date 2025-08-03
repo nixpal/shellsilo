@@ -15,12 +15,35 @@ SHELLSILO has been tested on two different Windows 10 models, and Windows 11.
 * SHELLSILO only compares the syscall APIs used in the code.
 
 
-### Requirements
-* Keystone
-* https://www.keystone-engine.org/download/
+🐍 Python Dependencies
+
+Install required Python libraries:
 
 ### Installation
 * pip3 install keystone-engine
+```
+pip install -r requirements.txt
+```
+
+🛠 Installing NASM
+#### macOS
+Install via Homebrew:
+```Bash
+brew install nasm
+brew install mingw-w64
+```
+
+#### Linux
+Install via Terminal:
+```Bash
+sudo apt update
+sudo apt install nasm mingw-w64
+```
+
+
+
+
+
 
 ### Manual
 📘 [View Full Syntax Manual](manual.md)
