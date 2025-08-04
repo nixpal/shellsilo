@@ -10,8 +10,20 @@ SHELLSILO is a cutting-edge tool that translates C syntax into syscall assembly 
 
 SHELLSILO has been tested on two different Windows 10 models, and Windows 11.
 
+📋 What's New in v1.0
+
+* 🧠 Added support for x64 architecture.
+
+* 🧾 Added support for both NASM and MASM syntax styles.
+
+* 📦 Added support for binary generation directly from ShellSilo — no need for external tools!
+
+* 🧮 Improved syscallslist file for more accurate syscall number resolution.
+
+* 🧹 Cleaned up codebase — removed unused dependencies and updated the rest.
+
 ### How does SHELLSILO obtain syscall number ?
-* SHELLSILO imported the syscall number table from https://j00ru.vexillium.org/syscalls/nt/64/ and converted each Windows version to its corresponding model number. By examining the PEB (Process Environment Block), SHELLSILO can easily obtain the model number of the system and compare it to its own model from the 'syscallslist.txt' table.
+* SHELLSILO imported the syscall number table from https://j00ru.vexillium.org/syscalls/nt/64/ and converted each Windows version to its corresponding model number. By examining the PEB (Process Environment Block), SHELLSILO can easily obtain the model number of the system and compare it to its own model from the 'syscallslist.csv' table.
 * SHELLSILO only compares the syscall APIs used in the code.
 
 
