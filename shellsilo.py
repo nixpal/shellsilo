@@ -2372,7 +2372,6 @@ def show_help():
     # Configuration Group
     table.add_row("  set arch <x64|x86>", "Switch between 32/64-bit modes")
     table.add_row("  set assembler <masm|nasm>", "Select assembler syntax")
-    # Generation Group
     table.add_row("  generate shellcode", "Output raw bytes")
     table.add_row("  generate assembly", "Output assembly instructions")
     table.add_row("  generate binary", "Output nasm generated binary")

