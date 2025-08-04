@@ -2375,6 +2375,8 @@ def show_help():
     # Generation Group
     table.add_row("  generate shellcode", "Output raw bytes")
     table.add_row("  generate assembly", "Output assembly instructions")
+    table.add_row("  generate binary", "Output nasm generated binary")
+    table.add_row("  enable data", "Enable .data section. Important if using third party shellcode")
     table.add_row("  load <filename>", "Load custom C file")
     table.add_row("  help", "Print this help menu")
     console.print(table)
